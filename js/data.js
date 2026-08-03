@@ -72,6 +72,11 @@ D.FORMATS = [
     fit:{early:0.6,morning:0.4,noon:0.4,aftn:0.4,evening:0.6,night:1.0,mid:1.2},
     desc:'コールサインの後、女性の声が数字の羅列を読み上げるだけの放送。'
        + '聴取率という概念が存在しない。何のための放送なのかは、局内でも誰も知らない。' },
+  { id:'resistance', name:'地下放送（真実を伝える）', cost:6, trust:0.09, risk:0.9, ad:0.0, stateOnly:true,
+    need:[], underground:1.0,
+    fit:{early:0.6,morning:0.7,noon:0.6,aftn:0.6,evening:0.8,night:1.2,mid:1.3},
+    desc:'表向きは無難な番組を装いながら、隠語と暗示で本当のことを伝える。'
+       + '国民の信頼は大きく回復し、水面下の支持が積み上がっていく。発覚すれば局そのものが終わる。' },
   { id:'filler', name:'フィラー',    cost:0,  trust:-0.02,risk:0.1, ad:0.25,
     need:[], fit:{early:0.5,morning:0.3,noon:0.4,aftn:0.4,evening:0.3,night:0.5,mid:0.8},
     desc:'自動送出の音楽。人はいらないが誰も聴かない。' }
@@ -430,5 +435,6 @@ D.CONST = {
   NONEXCL_PENALTY:0.87, // 非専属タレントの効果減
   SAVE_SLOTS:3,
   SW_TX_UPKEEP:380,     // 短波送信所の月額運用費（大電力なので電気代が重い）
-  SW_VERI_COST:0.9      // ベリカード1通あたりの費用（印刷・国際郵便）
+  SW_VERI_COST:0.9,     // ベリカード1通あたりの費用（印刷・国際郵便）
+  UPRISING_THRESHOLD:100 // 地下放送の支持がここに達すると蜂起の是非を問われる
 };

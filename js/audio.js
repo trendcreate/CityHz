@@ -339,3 +339,58 @@ AUDIO.toggle = function(kind){
   }
   return AUDIO.enabled[kind];
 };
+
+/* =========================================================
+   和文モールス（乱数放送のコールサイン送出）
+   総務省告示の和文モールス符号（無線局運用規則 別表第一号）にもとづく。
+   濁点・半濁点は簡略化し、清音の符号で代用する。
+   ========================================================= */
+AUDIO.WABUN = {
+  'あ':'--.--','い':'.-','う':'..-','え':'-.---','お':'.-...',
+  'か':'.-..','き':'-.-..','く':'...-','け':'-.--','こ':'----',
+  'さ':'-.-.-','し':'--.-.','す':'---.-','せ':'.---.','そ':'---.',
+  'た':'-.','ち':'..-.','つ':'.--.','て':'.-.--','と':'..-..',
+  'な':'.-.','に':'-.-.','ぬ':'....','ね':'--.-','の':'..--',
+  'は':'-...','ひ':'--..-','ふ':'--..','へ':'.','ほ':'-..',
+  'ま':'-..-','み':'..-.-','む':'-','め':'-...-','も':'-..-.',
+  'や':'.--','ゆ':'-..--','よ':'--',
+  'ら':'...','り':'--.','る':'-.--.','れ':'---','ろ':'.-.-',
+  'わ':'-.-','を':'.---','ん':'.-.-.'
+};
+AUDIO.WABUN_VOICED = {
+  'が':'か','ぎ':'き','ぐ':'く','げ':'け','ご':'こ',
+  'ざ':'さ','じ':'し','ず':'す','ぜ':'せ','ぞ':'そ',
+  'だ':'た','ぢ':'ち','づ':'つ','で':'て','ど':'と',
+  'ば':'は','び':'ひ','ぶ':'ふ','べ':'へ','ぼ':'ほ',
+  'ぱ':'は','ぴ':'ひ','ぷ':'ふ','ぺ':'へ','ぽ':'ほ'
+};
+
+/* コールサインをCWのタイミングでビープ送出する（実際に届くふりをした演出音） */
+AUDIO.playWabunCall = function(text, repeat){
+  if(!AUDIO.ready || !AUDIO.enabled.sfx) return;
+  AUDIO.resume();
+  const ctx = AUDIO.ctx;
+  const unit = 0.075, freq = 660;
+  let t = ctx.currentTime + 0.05;
+  const beep = dur => {
+    const o = ctx.createOscillator(); o.type='sine'; o.frequency.value=freq;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.11, t+0.006);
+    g.gain.setValueAtTime(0.11, Math.max(t+0.006, t+dur-0.008));
+    g.gain.exponentialRampToValueAtTime(0.0001, t+dur);
+    o.connect(g); g.connect(AUDIO.sfxBus);
+    o.start(t); o.stop(t+dur+0.01);
+    t += dur;
+  };
+  const send = ch => {
+    const code = AUDIO.WABUN[AUDIO.WABUN_VOICED[ch] || ch];
+    if(!code) return;
+    for(const sym of code){ beep(sym==='-' ? unit*3 : unit); t += unit; }
+    t += unit*2;   // 文字間（符号間+文字間で計3単位）
+  };
+  for(let r=0; r<(repeat||2); r++){
+    for(const ch of text) send(ch);
+    t += unit*4;   // 語間（計7単位）
+  }
+};

@@ -43,6 +43,7 @@ G.newGame = function(opts){
     sw: { target:'seasia', bands:{}, reports:0, pending:0, veri:0, intlFame:0,
           jam:0, jamTarget:null, reach:0 },   // 国際向け短波放送
     regime: 55, condemn: 0, directives: 0, defied: 0,   // 国営モード：体制評価・国際的非難・指令
+    underground: { support:0, uprisingQueued:false, raids:0 },   // 国営モード：地下放送による民主化運動
     staff: [], candidates: [],
     freeMarket: [], agencyBlock: {},
     sponsors: [], offers: [],
@@ -397,6 +398,7 @@ function numbersBurst(s){
                 + String(rint(0,9))+String(rint(0,9));
   G.log('<span style="color:#a78bfa">'+call+'　'+call+'　'
       + g()+'　'+g()+'　'+g()+'　……</span>');
+  AUDIO.playWabunCall(call, 2);   // コールサインを和文モールスで送出する
 }
 
 /* 毎月の指令 */
@@ -484,6 +486,12 @@ function stateMonthly(s, L){
         + '体制はこれを「敵対的宣伝」と切り捨てつつ、内心では厄介がっています。','bad');
   }
 
+  // 地下放送：発覚のリスクと、蜂起の機
+  maybeUndergroundRaid(s);
+  if(s.over) return;
+  maybeUprising(s);
+  if(s.over) return;
+
   // 終幕の判定
   if(s.regime < 12){
     G.gameOver('体制評価が地に落ちました。あなたは局長の任を解かれ、'
@@ -497,6 +505,82 @@ function stateMonthly(s, L){
     return;
   }
   maybeDirective(s);
+}
+
+/* =========================================================
+   地下放送 — 発覚と、民主化の蜂起
+   ========================================================= */
+function maybeUndergroundRaid(s){
+  const u = s.underground;
+  if(!u || u.support <= 0) return;
+  const cb = cityBonus(s);
+  // 支持が大きいほど、妨害電波塔（＝監視網）が多いほど、国際的緊張が高いほど発覚しやすい
+  const risk = clamp(0.03 + u.support/1400 + cb.jammer*0.02 + s.condemn/900, 0.01, 0.42);
+  if(Math.random() > risk) return;
+  u.raids++;
+  G.queue({
+    head:'【地下放送】発覚の危機',
+    urgent:true, sfx:'alert',
+    body:'秘密警察が局内の不審な動きを察知しました。地下放送の運営に関わる者を'
+       + '特定しようとしています。<br><br>'
+       + 'これまでに積み上げた水面下の支持：<b>'+Math.round(u.support)+'</b>',
+    opts:[
+      { label:'完全に否認する', sub:'嫌疑を突っぱねる。失敗すれば局長ごと粛清される。', risk:true, fn:()=>{
+        if(Math.random() < 0.5){
+          u.support = clamp(u.support*0.6, 0, 999);
+          G.log('尋問を乗り切りました。運動は縮小しましたが、命脈は保たれています。','good');
+        }else{
+          G.gameOver('地下放送の運営が発覚しました。あなたは反体制活動の首謀者として拘束されました。'
+                    + 'この局が伝えた真実は、聴いていた人々の記憶の中に残り続けます。');
+        }
+      }},
+      { label:'部下の一人を切り捨てる', sub:'誰かを差し出して組織を守る。局内の空気は確実に凍りつく。', fn:()=>{
+        const pool = s.staff.filter(x=>!x.free);
+        if(pool.length){
+          const v = pick(pool);
+          removeStaff(s, v);
+          for(const k in s.schedule) if(s.schedule[k].dj===v.id) s.schedule[k].dj=null;
+          G.log(v.name+'が連行されました。局内では誰もその名を口にしません。','bad');
+        }
+        s.morale = clamp(s.morale-14, 0, 100);
+        u.support = clamp(u.support*0.85, 0, 999);
+      }},
+      { label:'自首し、仲間を守る', sub:'局長の座を退く。運動はあなたなしで続いていく。', fn:()=>{
+        G.gameOver('あなたは自ら出頭し、地下放送への関与はすべて自分ひとりの責任だと主張しました。'
+                  + '仲間は守られ、運動は水面下で続いています。あなたの名前は、いずれ語られるでしょう。', true);
+      }}
+    ]
+  });
+}
+
+function maybeUprising(s){
+  const u = s.underground;
+  if(!u || u.support < D.CONST.UPRISING_THRESHOLD || u.uprisingQueued) return;
+  u.uprisingQueued = true;
+  G.queue({
+    head:'蜂起の機は熟した',
+    urgent:true, sfx:'good',
+    body:'地下放送を通じて広がった真実は、もはや隠しきれないところまで来ています。'
+       + '街角では、体制への公然とした批判すら聞かれるようになりました。'
+       + '<br><br>水面下の支持：<b>'+Math.round(u.support)+'</b> ／ 体制評価：<b>'+Math.round(s.regime)+'</b>'
+       + '<br><br>今この瞬間、決起を呼びかけるべきでしょうか。',
+    opts:[
+      { label:'決起を呼びかける', sub:'いま賭けに出る。後戻りはできない。', risk:true, fn:()=>{
+        const power = u.support - (s.regime*0.75 + cityBonus(s).jammer*9);
+        if(power > 0){
+          G.gameOver('あなたの放送に導かれた市民が街に溢れ、体制はついに崩壊しました。'
+                    + s.meta.name+'は、独裁の終わりを告げた局として歴史に刻まれます。', true);
+        }else{
+          G.gameOver('蜂起は鎮圧されました。局は閉鎖され、関係者は連行されました。'
+                    + 'それでも、あなたが伝えた言葉を覚えている人々がいます。');
+        }
+      }},
+      { label:'まだ機は熟していない', sub:'支持を積み増す。発覚のリスクは上がり続ける。', fn:()=>{
+        u.uprisingQueued = false;
+        G.log('決起を見送りました。運動は水面下で拡大を続けています。');
+      }}
+    ]
+  });
 }
 
 /* =========================================================
@@ -791,6 +875,10 @@ function hourly(s){
       G.log('<b>'+city+'</b>のリスナーから受信報告書が届きました（未返信 '
           + Math.floor(s.sw.pending)+'通）。','good');
     }
+  }
+  // 地下放送：水面下で民主化の支持を積み上げる
+  if(f.underground && G.isState(s)){
+    s.underground.support = clamp(s.underground.support + f.underground * 0.85, 0, 999);
   }
   // 事故・不祥事判定
   checkIncident(s, cell, f, blk);
@@ -1357,10 +1445,12 @@ G.log = function(msg, cls){
   if(s){ s.log.push(e); if(s.log.length>300) s.log.shift(); }
   if(typeof UI!=='undefined' && UI.pushLog) UI.pushLog(e);
 };
-G.gameOver = function(msg){
+G.gameOver = function(msg, good){
   G.speed = 0;
   G.state.over = true;
-  G.queue({ head:'放送終了', urgent:true, sfx:'signoff', body:'<b>'+msg+'</b><br><br>総放送年数：'+G.state.time.y+'年<br>最高聴取率：'
+  G.queue({ head: good?'放送、その先へ':'放送終了', urgent:!good, good:!!good,
+    sfx: good?'good':'signoff',
+    body:'<b>'+msg+'</b><br><br>総放送年数：'+G.state.time.y+'年<br>最高聴取率：'
     + pct(Math.max(0,...G.state.ratingHist,0)) + '<br>災害対応：'+G.state.stats.disasters+'件 / 不祥事：'+G.state.stats.incidents+'件',
     opts:[{ label:'最初からやり直す', fn:()=>location.reload() }] });
 };
@@ -1662,6 +1752,7 @@ function migrate(s){
   if(s.directives === undefined) s.directives = 0;
   if(s.defied === undefined) s.defied = 0;
   if(s.lastMonth && s.lastMonth.stateBudget === undefined) s.lastMonth.stateBudget = 0;
+  if(!s.underground) s.underground = { support:0, uprisingQueued:false, raids:0 };
 }
 G._migrate = migrate;
 

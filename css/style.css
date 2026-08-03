@@ -195,6 +195,7 @@ select,input[type=text],input[type=number]{
 .modal-box{width:620px;max-height:82vh;background:var(--panel);border:2px solid var(--line);display:flex;flex-direction:column}
 .modal-head{background:linear-gradient(#3a4a5c,#2a3644);padding:9px 14px;font-weight:bold;letter-spacing:2px}
 .modal-head.urgent{background:linear-gradient(#8a1a1a,#5a0e0e);color:#fff}
+.modal-head.good{background:linear-gradient(#8a6a1a,#5a4a0e);color:#fff}
 .modal-body{padding:14px;line-height:1.8;overflow-y:auto}
 .modal-opts{border-top:1px solid var(--line);padding:10px;display:flex;flex-direction:column;gap:6px}
 .opt{

@@ -536,6 +536,17 @@ UI.render_legal = function(){
         + '<br><br>どちらも避けるには、従うべきところと譲れないところを見極めるしかありません。'
         + '「形式的に従い、骨抜きにする」という選択肢は、'
         + 'うまくいけば両方を守れますが、露見すれば拒否より重く扱われます。</div>';
+    if(s.underground && s.underground.support > 0){
+      const u = s.underground;
+      hl += '<h3>地下放送</h3><div class="card">'
+          + '水面下の支持：<b class="'+(u.support>=D.CONST.UPRISING_THRESHOLD*0.7?'pos':'')+'">'
+            + Math.round(u.support)+' / '+D.CONST.UPRISING_THRESHOLD+'</b>'
+          + '　発覚の危機：'+u.raids+'回'
+          + '<br><span style="color:#8296a8;font-size:11px">編成表の「'+GL.link('resistance','地下放送')
+            + '」を流し続けるほど積み上がります。'+D.CONST.UPRISING_THRESHOLD+'に達すると、'
+            + '決起を呼びかけるかどうかを問われます。支持が大きいほど、そして妨害電波塔（監視網）が'
+            + '多いほど発覚しやすくなります。</span></div>';
+    }
     hl += '<h3>許認可</h3><div style="overflow-x:auto"><table>'
         + '<tr><th>種別</th><th class="num">費用</th><th>状態</th><th></th></tr>';
     for(const l of D.LICENSES){
@@ -859,6 +870,7 @@ UI.showModal = function(cfg){
   document.querySelectorAll('.speed button').forEach(b=>b.classList.toggle('sel', b.dataset.speed==='0'));
   $('modalHead').textContent = cfg.head;
   $('modalHead').classList.toggle('urgent', !!cfg.urgent);
+  $('modalHead').classList.toggle('good', !!cfg.good);
   $('modalBody').innerHTML = cfg.bodyHtml || cfg.body || '';
   const o = $('modalOpts'); o.innerHTML='';
   cfg.opts.forEach(op=>{
