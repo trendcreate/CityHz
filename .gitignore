@@ -1,0 +1,13 @@
+# OS
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# エディタ
+.vscode/
+.idea/
+*.swp
+
+# ログ・一時ファイル
+*.log
+tmp/
