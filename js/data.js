@@ -52,6 +52,16 @@ D.FORMATS = [
   { id:'net',    name:'ネット受け',  cost:0,  trust:0.02, risk:0.3, ad:0.6,
     need:[], fit:{early:1.0,morning:1.0,noon:1.0,aftn:1.0,evening:1.0,night:1.0,mid:1.0},
     desc:'キー局制作をそのまま流す。自社の手間ゼロ、収入は少ない。', netOnly:true },
+  { id:'aniradi',name:'アニラジ',    cost:5,  trust:0.00, risk:0.35,ad:0.85, simul:2.4,
+    need:[], guest:true,
+    fit:{early:0.35,morning:0.45,noon:0.65,aftn:0.80,evening:0.95,night:1.25,mid:1.40},
+    desc:'アニメ・声優関連のゲストが番組ごとに入れ替わる企画。固定のDJは要らない。'
+       + 'マス向けの数字は出ないが、刺さる層には深く刺さり、サイマル配信で強く伸びる。' },
+  { id:'kikaku', name:'企画枠',      cost:4,  trust:-0.01,risk:0.5, ad:0.80, simul:1.6,
+    need:[], guest:true,
+    fit:{early:0.55,morning:0.65,noon:0.85,aftn:0.90,evening:0.85,night:1.10,mid:1.15},
+    desc:'その時々のゲストで内容を変える短期の企画枠。当たり外れが大きく安定しないが、'
+       + '話題になればサイマル配信の聴取が伸びる。構成作家がいると外しにくくなる。' },
   { id:'filler', name:'フィラー',    cost:0,  trust:-0.02,risk:0.1, ad:0.25,
     need:[], fit:{early:0.5,morning:0.3,noon:0.4,aftn:0.4,evening:0.3,night:0.5,mid:0.8},
     desc:'自動送出の音楽。人はいらないが誰も聴かない。' }

@@ -59,6 +59,8 @@ UI.refreshTop = function(){
   $('stTrust').style.color = s.trust<35?'#ff4d4d':(s.trust>70?'#4ade80':'#39d4ff');
   $('stMorale').textContent = Math.round(s.morale);
   $('stPop').textContent = (s.coverPop/10000).toFixed(1)+'万人';
+  $('stSimul').textContent = Math.round(s.simulAvg||0);
+  $('stSimul').style.color = s.licenses.includes('multi') ? 'var(--accent2)' : '#8296a8';
   const t = s.time;
   $('clkDate').textContent = t.y+'年目 '+t.m+'月'+t.d+'日('+D.DAYS[t.dow]+')';
   $('clkTime').textContent = String(t.h).padStart(2,'0')+':00';
@@ -115,7 +117,7 @@ UI.render_sched = function(){
       const mark = fit>=1.15?'◎':(fit>=1.0?'○':(fit>=0.8?'△':'×'));
       h += '<div class="'+cls+'" data-k="'+dw+'-'+b.id+'">'
          + '<div class="f">'+f.name+' <span style="color:#8296a8">'+mark+'</span></div>'
-         + '<div class="d">'+(dj?dj.name:(f.need.includes('dj')?'<span style="color:#ff4d4d">担当なし</span>':'－'))+'</div>'
+         + '<div class="d">'+(dj?dj.name:(f.need.includes('dj')?'<span style="color:#ff4d4d">担当なし</span>':(f.guest?'ゲスト回し':'－')))+'</div>'
          + '</div>';
     }
   }
@@ -125,6 +127,14 @@ UI.render_sched = function(){
   h += '<h3>時間帯別 平均聴取率</h3><table><tr><th>時間帯</th>'
      + D.BLOCKS.map(b=>'<th class="num">'+b.name+'</th>').join('') + '</tr><tr><td>聴取率</td>'
      + D.BLOCKS.map(b=>'<td class="num">'+pct(s.blockRating[b.id]||0)+'</td>').join('') + '</tr></table>';
+
+  h += '<h3>'+GL.link('simul','サイマル配信')+' 指数</h3>'
+     + '<div class="kpi"><div><label>現在の配信指数</label><b>'+Math.round(s.simulAvg||0)+'</b></div>'
+     + '<div><label>収益化</label><b class="'+(s.licenses.includes('multi')?'pos':'neg')+'">'
+       +(s.licenses.includes('multi')?'マルチメディア放送 許可済':'許可なし（未収益化）')+'</b></div></div>'
+     + '<p class="hint">'+GL.link('aniradi','アニラジ')+'や'+GL.link('kikaku','企画枠')+'のようにDJを固定しない番組は、'
+     + '通常の聴取率は伸びにくい代わりにこの指数を押し上げます。'
+     + '【免許】でマルチメディア放送の許可を取ると、指数がそのまま収益になります。</p>';
   el.innerHTML = h;
 
   el.querySelectorAll('.sched-cell').forEach(c=>{
@@ -177,9 +187,11 @@ UI.openSchedEditor = function(key){
         const need = f.need.map(r=>{
           const n = G.staffOf(s,r).length;
           return '<span class="tag '+(n?'on':'off')+'">'+D.role(r).name+' '+n+'名</span>';
-        }).join('') || '<span class="tag">スタッフ不要</span>';
+        }).join('') || (f.guest ? '<span class="tag on">DJ不要（任意でMC可）</span>' : '<span class="tag">スタッフ不要</span>');
         $('edDesc').innerHTML = f.desc + '<br>必要スタッフ：'+need
-          + '<br>信頼度 '+(f.trust>=0?'+':'')+f.trust.toFixed(2)+' / 広告単価 ×'+f.ad+' / 事故リスク ×'+f.risk;
+          + '<br>信頼度 '+(f.trust>=0?'+':'')+f.trust.toFixed(2)+' / 広告単価 ×'+f.ad+' / 事故リスク ×'+f.risk
+          + (f.simul ? ' / '+GL.link('simul','サイマル配信')+' ×'+f.simul : '')
+          + (f.guest ? '<br><span style="color:#8296a8">ゲストが持ち回りで出演。当たり外れが大きく、構成作家がいると安定する。</span>' : '');
       };
       $('edFmt').onchange = upd; upd();
     }
@@ -488,7 +500,7 @@ UI.render_finance = function(){
   h += '<div class="grid2"><div><h3>先月の損益計算</h3>';
   if(m){
     const row=(n,v,neg)=>'<tr><td>'+n+'</td><td class="num '+(neg?'neg':'pos')+'">'+(neg?'-':'+')+money(v)+'</td></tr>';
-    h += '<table>'+row('広告収入',m.adRev)+row('ネット配分金',m.netRev)
+    h += '<table>'+row('広告収入',m.adRev)+row('ネット配分金',m.netRev)+row('サイマル配信収入',m.simulRev||0)
       + row('人件費（社員）',m.salary,1)+row('出演料（フリー）',m.talent||0,1)
       + row('設備維持費',m.upkeep,1)+row('番組制作費',m.prod,1)
       + row('電波利用料・著作権料・分担金',m.fee,1)+row('支払利息ほか',m.misc,1)

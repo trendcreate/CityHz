@@ -31,6 +31,7 @@ G.newGame = function(opts){
     debt: 0,
     trust: 50, morale: 62, fame: 12,
     rating: 0, ratingAvg: 0, ratingHist: [],
+    simul: 0, simulAvg: 0, simulHist: [],   // サイマル配信の聴取動向
     blockRating: {},          // blockId -> 直近平均聴取率
     admin: 0, bpo: 0, accidents: 0,
     licenses: ['base'],
@@ -412,7 +413,20 @@ G.programScore = function(s, cell, blockId){
   let sc = 12;
   const dj = cell.dj ? s.staff.find(x=>x.id===cell.dj) : null;
 
-  if(dj){
+  if(f.guest){
+    // アニラジ・企画枠：固定DJは不要。ゲストのブッキング力と、回ごとの話題性のブレで決まる
+    const booking = 7 + s.fame*0.22 + G.staffOf(s,'director').length*2.0 + G.staffOf(s,'writer').length*1.4;
+    let host = 0;
+    if(dj){
+      const fat = 1 - dj.fatigue/230;
+      host = (dj.talk*0.22 + dj.fame*0.18) * fat;
+      if(dj.free && !dj.exclusive) host *= D.CONST.NONEXCL_PENALTY;
+    }
+    // 構成作家がいるとブッキングが安定し、大外れを避けやすくなる
+    const stabilized = G.staffOf(s,'writer').length > 0;
+    const buzz = stabilized ? rnd(0.75,1.55) : rnd(0.45,1.95);
+    sc = (booking + host) * buzz;
+  } else if(dj){
     const fat = 1 - dj.fatigue/230;
     sc += (dj.talk*0.40 + dj.fame*0.30) * fat;
     // 非専属のフリーは他局にも出ているため、自局の色がつきにくい
@@ -507,6 +521,11 @@ function hourly(s){
   s.blockRating[blk.id] = prev*0.92 + r.base*0.08;
 
   const f = D.fmt(cell.fmt);
+  // サイマル配信（radikoのような同時配信）の聴取動向。
+  // 電波の競合とは別物として扱うので、時間帯シェアではなく番組そのものの魅力(r.score)を使う。
+  const simulMult = (f.simul||1.0) * (s.licenses.includes('multi') ? 1.6 : 1.0);
+  const simulRaw = clamp(r.score * simulMult * 0.55, 0, 100);
+  s.simul = (s.simul ?? simulRaw)*0.90 + simulRaw*0.10;
   // 制作費（1枠あたりの費用を、その枠の時間数で割って毎時「計上」する。
   //   現金の増減は月次決算でまとめて処理するので、ここでは s.money を触らない）
   s.ledger.prod += f.cost / blk.hours;
@@ -542,14 +561,18 @@ function endOfDay(s){
   s.morale = clamp(s.morale + clamp(dm,-2.0,1.5), 0, 100);
   // 信頼度は緩やかに中央へ
   s.trust = clamp(s.trust + (52 - s.trust)*0.004, 0, 100);
-  // 知名度
-  s.fame = clamp(s.fame + (s.ratingAvg-1.2)*0.06 + cityBonus(s).reach*0.02, 0, 100);
+  // 知名度（サイマル配信は若年層のリーチとして効いてくる）
+  s.fame = clamp(s.fame + (s.ratingAvg-1.2)*0.06 + cityBonus(s).reach*0.02 + s.simulAvg*0.014, 0, 100);
   // 日次の聴取率平均
   let sum=0; for(const b of D.BLOCKS) sum += (s.blockRating[b.id]||0)*b.pop;
   let wsum=0; for(const b of D.BLOCKS) wsum += b.pop;
   s.ratingAvg = sum/wsum;
   s.ratingHist.push(s.ratingAvg);
   if(s.ratingHist.length>120) s.ratingHist.shift();
+  // サイマル配信の日次平均
+  s.simulAvg = (s.simulAvg||0)*0.85 + s.simul*0.15;
+  s.simulHist.push(s.simulAvg);
+  if(s.simulHist.length>120) s.simulHist.shift();
   // CM差し替え期間
   if(s.flags.cmSuspendDays>0){
     s.flags.cmSuspendDays--;
@@ -576,7 +599,7 @@ function endOfDay(s){
 }
 
 function endOfMonth(s){
-  const L = { adRev:0, netRev:0, salary:0, talent:0, upkeep:0, prod:s.ledger.prod, fee:0, misc:0 };
+  const L = { adRev:0, netRev:0, simulRev:0, salary:0, talent:0, upkeep:0, prod:s.ledger.prod, fee:0, misc:0 };
   // 広告収入
   const drop = [];
   for(const sp of s.sponsors){
@@ -611,8 +634,11 @@ function endOfMonth(s){
   if(s.network) L.fee += D.NETWORKS.find(n=>n.id===s.network).fee;
   // 借入利息
   if(s.debt>0){ const i = s.debt*0.004; L.misc += i; s.debt += i; }
+  // サイマル配信の広告収入。聴取自体はライセンスがなくても伸びるが、
+  // 収益化にはマルチメディア放送の許可（データ放送・アプリ配信の正式な仕組み）が要る。
+  L.simulRev = s.licenses.includes('multi') ? s.simulAvg * 2.1 * dif.pay : 0;
 
-  const income = L.adRev + s.ledger.netRev;
+  const income = L.adRev + s.ledger.netRev + L.simulRev;
   const cost = L.salary + L.talent + L.upkeep + L.prod + L.fee + L.misc;
   s.money += income - cost;
   s.lastMonth = { ...L, netRev:s.ledger.netRev, income, cost, profit:income-cost };
@@ -1168,7 +1194,8 @@ G.saveTo = function(slot, quiet){
 G.autosave = function(){ G.saveTo('auto', true); };
 
 G.loadFrom = function(slot){
-  const raw = localStorage.getItem(G.slotKey(slot));
+  // 旧・単一スロット時代のセーブは 'cityhz_save' に入っている（G.slotKey は対応しない）
+  const raw = localStorage.getItem(slot==='legacy' ? 'cityhz_save' : G.slotKey(slot));
   if(!raw){ UI.toast('このスロットは空です','bad'); return false; }
   try{
     const o = JSON.parse(raw);
@@ -1227,6 +1254,11 @@ function migrate(s){
   if(s.ledger && s.ledger.talent === undefined) s.ledger.talent = 0;
   if(s.lastMonth && s.lastMonth.talent === undefined) s.lastMonth.talent = 0;
   for(const st of (s.staff||[])) if(st.free && st.exclusive === undefined) st.exclusive = false;
+  // サイマル配信（アニラジ・企画枠の追加時）
+  if(s.simul === undefined) s.simul = 0;
+  if(s.simulAvg === undefined) s.simulAvg = 0;
+  if(!s.simulHist) s.simulHist = [];
+  if(s.lastMonth && s.lastMonth.simulRev === undefined) s.lastMonth.simulRev = 0;
 }
 G._migrate = migrate;
 

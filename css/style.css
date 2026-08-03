@@ -64,7 +64,7 @@ button{font-family:inherit;font-size:12px;cursor:pointer}
 .station-id b{display:block;font-size:14px}
 .station-id span{color:var(--dim);font-size:11px}
 .stats{display:flex;gap:2px;margin-left:auto}
-.stat{background:#0e141a;border:1px solid var(--line);padding:3px 10px;min-width:88px;text-align:right}
+.stat{background:#0e141a;border:1px solid var(--line);padding:3px 8px;min-width:76px;text-align:right}
 .stat label{display:block;color:var(--dim);font-size:10px;text-align:left}
 .stat b{font-size:14px;color:var(--accent2)}
 .clock{background:#0e141a;border:1px solid var(--line);padding:3px 10px;text-align:center;min-width:110px}
