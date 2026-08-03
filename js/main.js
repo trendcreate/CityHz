@@ -6,6 +6,8 @@
   /* ---------- タイトル ---------- */
   let bootMode = 'normal';
   let bootDiff = 'normal';
+  let bootMarket = 'pref';
+  let bootCompany = 'radio';
 
   document.querySelectorAll('.mode-btn').forEach(b=>{
     b.onclick = ()=>{
@@ -37,6 +39,54 @@
       + '　事故率 ×' + d.incident + '　競合 ×' + d.rival;
   }
   showDiffDesc();
+
+  // 市場規模ボタン
+  const mktWrap = document.getElementById('bootMarkets');
+  D.MARKETS.forEach(m=>{
+    const b = document.createElement('button');
+    b.className = 'diff-btn' + (m.id===bootMarket ? ' selected' : '');
+    b.textContent = m.name;
+    b.dataset.market = m.id;
+    b.onclick = ()=>{
+      bootMarket = m.id;
+      mktWrap.querySelectorAll('.diff-btn').forEach(x=>x.classList.toggle('selected', x.dataset.market===m.id));
+      showMarketDesc();
+    };
+    mktWrap.appendChild(b);
+  });
+  function showMarketDesc(){
+    const m = D.market(bootMarket);
+    document.getElementById('bootMarketDesc').innerHTML =
+      m.desc + '<br>人口 ×' + m.pop + '　競合 ×' + m.rival
+      + '　固定費 ×' + m.cost + '　建設費 ×' + m.build;
+  }
+  showMarketDesc();
+
+  // 経営形態ボタン
+  const comWrap = document.getElementById('bootCompanies');
+  D.COMPANIES.forEach(c=>{
+    const b = document.createElement('button');
+    b.className = 'diff-btn' + (c.id===bootCompany ? ' selected' : '');
+    b.textContent = c.name;
+    b.dataset.company = c.id;
+    b.onclick = ()=>{
+      bootCompany = c.id;
+      comWrap.querySelectorAll('.diff-btn').forEach(x=>x.classList.toggle('selected', x.dataset.company===c.id));
+      showCompanyDesc();
+    };
+    comWrap.appendChild(b);
+  });
+  function showCompanyDesc(){
+    const c = D.company(bootCompany);
+    let extra = '広告単価 ×' + c.pay + '　固定費 ×' + c.cost;
+    if(c.subsidy) extra += '　テレビ部門補助 ' + money(c.subsidy) + '/月（市場規模に比例）';
+    if(c.fame)    extra += '　開局時の知名度 +' + c.fame;
+    if(c.news!==1)extra += '　報道力 ×' + c.news;
+    if(c.tvRisk)  extra += '<br><span style="color:#ff8a8a">テレビ部門の不祥事が毎月'
+                        + (c.tvRisk*100).toFixed(1) + '%の確率で降ってくる</span>';
+    document.getElementById('bootCompanyDesc').innerHTML = c.desc + '<br>' + extra;
+  }
+  showCompanyDesc();
 
   // 新規／続きから のタブ
   document.querySelectorAll('.boot-tab').forEach(b=>{
@@ -70,6 +120,7 @@
       h += '<div class="save-row"><span class="save-slot'+(e.slot==='auto'?' auto':'')+'">'+label+'</span>'
          + '<div class="save-info"><b>'+esc(m.name)+'</b>'
          + '<span>'+esc(m.call)+' '+m.freq+'MHz / '+mode+'・'+dif
+         + ' / '+D.market(m.market).name+'・'+D.company(m.company).name
          + ' / '+m.y+'年目'+m.m+'月'+m.d+'日'
          + ' / '+money(m.money)+' / 聴取率'+m.rating+'%'
          + (m.over?' <b style="color:#ff4d4d">［放送終了］</b>':'')+'</span>'
@@ -125,7 +176,8 @@
     else { AUDIO.enabled.bgm = AUDIO.enabled.sfx = false; syncAudioButtons(); }
     document.getElementById('boot').classList.add('hidden');
     document.getElementById('app').classList.remove('hidden');
-    start({ name, call, freq: freq.toFixed(1), mode: bootMode, diff: bootDiff }, wantTut);
+    start({ name, call, freq: freq.toFixed(1), mode: bootMode, diff: bootDiff,
+            market: bootMarket, company: bootCompany }, wantTut);
   };
 
   function start(opts, wantTut){

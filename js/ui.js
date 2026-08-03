@@ -51,7 +51,8 @@ UI.refreshTop = function(){
   const s = G.state; if(!s) return;
   $('hdrName').textContent = s.meta.name;
   $('hdrCall').textContent = s.meta.call + ' / ' + s.meta.freq + 'MHz / '
-    + (s.meta.mode==='disaster'?'災害':'通常') + '・' + D.diff(s.meta.diff).name;
+    + (s.meta.mode==='disaster'?'災害':'通常') + '・' + D.diff(s.meta.diff).name
+    + ' / ' + D.market(s.meta.market).name + '・' + D.company(s.meta.company).name;
   $('stMoney').textContent = money(s.money);
   $('stMoney').style.color = s.money<0 ? '#ff4d4d' : '#39d4ff';
   $('stRating').textContent = pct(s.ratingAvg||0);
@@ -532,7 +533,7 @@ UI.render_finance = function(){
   if(m){
     const row=(n,v,neg)=>'<tr><td>'+n+'</td><td class="num '+(neg?'neg':'pos')+'">'+(neg?'-':'+')+money(v)+'</td></tr>';
     h += '<table>'+row('広告収入',m.adRev)+row('ネット配分金',m.netRev)+row('サイマル配信収入',m.simulRev||0)
-      + row('系列 加盟局分担金',m.netFee||0)
+      + row('系列 加盟局分担金',m.netFee||0)+row('テレビ部門からの補助',m.tvSubsidy||0)
       + row('人件費（社員）',m.salary,1)+row('出演料（フリー）',m.talent||0,1)
       + row('設備維持費',m.upkeep,1)+row('番組制作費',m.prod,1)
       + row('電波利用料・著作権料・分担金',m.fee,1)+row('支払利息ほか',m.misc,1)

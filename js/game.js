@@ -24,12 +24,15 @@ const uid = () => _uid++;
    ========================================================= */
 G.newGame = function(opts){
   const dif = D.diff(opts.diff);
+  const mkt = D.market(opts.market);
+  const com = D.company(opts.company);
   const s = {
-    meta:{ name:opts.name, call:opts.call, freq:opts.freq, mode:opts.mode, diff:dif.id },
+    meta:{ name:opts.name, call:opts.call, freq:opts.freq, mode:opts.mode,
+           diff:dif.id, market:mkt.id, company:com.id },
     time:{ y:1, m:4, d:1, h:5, dow:0 },
     money: Math.round(D.CONST.START_MONEY * dif.money),
     debt: 0,
-    trust: 50, morale: 62, fame: 12,
+    trust: 50 + com.trust, morale: 62, fame: 12 + com.fame,
     rating: 0, ratingAvg: 0, ratingHist: [],
     simul: 0, simulAvg: 0, simulHist: [],   // サイマル配信の聴取動向
     blockRating: {},          // blockId -> 直近平均聴取率
@@ -42,7 +45,7 @@ G.newGame = function(opts){
     sponsors: [], offers: [],
     schedule: {},             // "dow-block" -> {fmt, dj}
     city: null, studio: null,
-    rivals: D.RIVALS.map(r => ({ ...r, str: r.base * dif.rival })),
+    rivals: D.RIVALS.map(r => ({ ...r, str: r.base * dif.rival * mkt.rival })),
     ledger: { adRev:0, netRev:0, salary:0, talent:0, upkeep:0, prod:0, fee:0, misc:0 },
     lastMonth: null,
     log: [],
@@ -94,12 +97,13 @@ function genCity(s){
     rx = clamp(rx + rint(-1,1), 1, W-2);
     if(terrain[y*W+rx]===0) terrain[y*W+rx]=3;
   }
-  // 人口（都心を数か所）
+  // 人口（都心を数か所）。市場規模で密度が変わる
+  const popMul = D.market(s.meta.market).pop;
   const cores = [];
   for(let i=0;i<4;i++){
     let cx,cy,g=0;
     do{ cx=rint(6,W-4); cy=rint(4,H-3); g++; }while(terrain[cy*W+cx]!==0 && g<60);
-    cores.push({x:cx,y:cy,p:rnd(2200,4200)});
+    cores.push({x:cx,y:cy,p:rnd(2200,4200)*popMul});
   }
   for(let y=0;y<H;y++) for(let x=0;x<W;x++){
     const t = terrain[y*W+x];
@@ -111,7 +115,7 @@ function genCity(s){
     }
     if(t===2) p *= 0.10;
     if(t===3) p *= 0.3;
-    popv[y*W+x] = Math.round(p + rnd(0,140));
+    popv[y*W+x] = Math.round(p + rnd(0,140)*popMul);
   }
   s.city = { w:W, h:H, terrain, pop:popv, build, sig:new Array(W*H).fill(0) };
   computeCoverage(s);
@@ -350,6 +354,12 @@ function talentRenewal(s, t){
 }
 
 G.dif = s => D.diff(s.meta.diff);
+G.mkt = s => D.market(s.meta.market);
+G.com = s => D.company(s.meta.company);
+/* 難易度・市場規模・経営形態を合成した倍率 */
+G.costMul = s => G.dif(s).cost * G.mkt(s).cost * G.com(s).cost;
+G.payMul  = s => G.dif(s).pay  * G.mkt(s).pay  * G.com(s).pay;
+G.buildMul= s => G.mkt(s).build;
 /* 対象がすでに退社・降板済みの場合に別人を消してしまわないための安全な削除 */
 function removeStaff(s, st){
   const i = s.staff.indexOf(st);
@@ -379,7 +389,8 @@ G.slotsFree = (s, blockId) =>
 
 function refreshOffers(s){
   const salesPower = G.salesPower(s);
-  const n = clamp(Math.round(2 + salesPower*0.9 + s.fame/30), 1, 9);
+  // ラテ兼営はテレビの営業網を共有するため、持ち込まれる案件数が多い
+  const n = clamp(Math.round(2 + salesPower*0.9 + s.fame/30 + G.com(s).offers), 1, 11);
   const open = D.BLOCKS.filter(b => G.slotsFree(s,b.id) > 0).map(b=>b.id);
   s.offers = [];
   if(!open.length) return;
@@ -388,7 +399,7 @@ function refreshOffers(s){
     const blk = (Math.random()<0.55 && open.includes(ind.demand)) ? ind.demand : pick(open);
     const bd  = D.BLOCKS.find(b=>b.id===blk);
     const reach = Math.max(3, s.coverPop/10000);   // 万人
-    const base = reach * rnd(4.5,6.5) * ind.pay * bd.pop * G.dif(s).pay
+    const base = reach * rnd(4.5,6.5) * ind.pay * bd.pop * G.payMul(s)
                * (1 + s.fame/90) * (1 + s.trust/160);
     const promised = clamp( (s.blockRating[blk]||0.6) * rnd(0.85,1.35), 0.3, 9);
     s.offers.push({
@@ -445,7 +456,8 @@ G.programScore = function(s, cell, blockId){
   sc *= (1 - missing*0.18);
   // 設備
   sc += sb.studio*2.2 + sb.quality*1.6 + sb.plan*1.1;
-  if(f.id==='news') sc += sb.news*2.4 + G.staffOf(s,'reporter').length*2.2;
+  // ラテ兼営は報道部がテレビと共同のため、取材網が厚い
+  if(f.id==='news') sc += (sb.news*2.4 + G.staffOf(s,'reporter').length*2.2) * G.com(s).news;
   // 時間帯適性
   sc *= (f.fit[blockId] || 1);
   // ネットワーク
@@ -600,7 +612,7 @@ function endOfDay(s){
 }
 
 function endOfMonth(s){
-  const L = { adRev:0, netRev:0, simulRev:0, netFee:0, salary:0, talent:0, upkeep:0, prod:s.ledger.prod, fee:0, misc:0 };
+  const L = { adRev:0, netRev:0, simulRev:0, netFee:0, tvSubsidy:0, salary:0, talent:0, upkeep:0, prod:s.ledger.prod, fee:0, misc:0 };
   // 広告収入
   const drop = [];
   for(const sp of s.sponsors){
@@ -626,10 +638,11 @@ function endOfMonth(s){
   for(const st of s.staff){
     if(st.free) L.talent += st.salary; else L.salary += st.salary;
   }
-  L.salary *= dif.cost;
-  L.talent *= dif.cost;
+  const cmul = G.costMul(s);
+  L.salary *= cmul;
+  L.talent *= cmul;
   // 維持費
-  L.upkeep = (studioUpkeep(s) + cityBonus(s).upkeep) * dif.cost;
+  L.upkeep = (studioUpkeep(s) + cityBonus(s).upkeep) * cmul;
   // 電波利用料・著作権料
   L.fee = cityBonus(s).tx * D.CONST.SPECTRUM_FEE + L.adRev*D.CONST.COPYRIGHT_RATE;
   if(s.network) L.fee += D.NETWORKS.find(n=>n.id===s.network).fee;
@@ -637,7 +650,10 @@ function endOfMonth(s){
   if(s.debt>0){ const i = s.debt*0.004; L.misc += i; s.debt += i; }
   // サイマル配信の広告収入。聴取自体はライセンスがなくても伸びるが、
   // 収益化にはマルチメディア放送の許可（データ放送・アプリ配信の正式な仕組み）が要る。
-  L.simulRev = s.licenses.includes('multi') ? s.simulAvg * 2.1 * dif.pay : 0;
+  L.simulRev = s.licenses.includes('multi') ? s.simulAvg * 2.1 * G.payMul(s) : 0;
+  // ラテ兼営：テレビ部門からの社内補助。市場規模に比例した安定収入になる
+  const com = G.com(s);
+  L.tvSubsidy = com.subsidy * G.mkt(s).pop * G.dif(s).pay;
   // 自社系列：加盟局が増減し、加盟局から分担金を受け取る（他局に加盟するのと逆の立場）
   L.netFee = 0;
   if(s.ownNetwork){
@@ -650,10 +666,10 @@ function endOfMonth(s){
       on.affiliates--;
       G.log(on.name+'から加盟局が1局離脱しました。','bad');
     }
-    L.netFee = on.affiliates * (7 + on.affiliates*0.25) * dif.pay;
+    L.netFee = on.affiliates * (7 + on.affiliates*0.25) * G.payMul(s);
   }
 
-  const income = L.adRev + s.ledger.netRev + L.simulRev + L.netFee;
+  const income = L.adRev + s.ledger.netRev + L.simulRev + L.netFee + L.tvSubsidy;
   const cost = L.salary + L.talent + L.upkeep + L.prod + L.fee + L.misc;
   s.money += income - cost;
   s.lastMonth = { ...L, netRev:s.ledger.netRev, income, cost, profit:income-cost };
@@ -695,6 +711,8 @@ function endOfMonth(s){
   for(const r of s.rivals){
     r.str = clamp(r.str + rnd(-2.2, 2.4)*dif.rival + (s.ratingAvg>2.5?0.5:-0.15), 12, 150);
   }
+  // ラテ兼営：テレビ部門の不祥事がラジオ側の信用としても降ってくる
+  if(com.tvRisk && Math.random() < com.tvRisk * dif.incident) tvIncident(s);
   G.autosave();
   // 破綻判定
   if(s.money < G.dif(s).floor){ G.gameOver('債務超過により経営破綻。'+s.meta.name+'は放送を停止しました。'); }
@@ -925,6 +943,48 @@ function checkIncident(s, cell, f, blk){
 
   const inc = pick(D.INCIDENTS.filter(i => !i.election));
   fireIncident(s, inc, dj);
+}
+
+/* ラテ兼営：テレビ部門で起きた問題。ラジオ側に非はないが、
+   視聴者・聴取者から見れば「同じ局」なので信用は連帯して傷つく。 */
+const TV_INCIDENTS = [
+  { name:'テレビの情報番組でやらせ演出', sev:3 },
+  { name:'テレビのニュースで映像の誤用', sev:2 },
+  { name:'テレビ局アナウンサーの不倫報道', sev:2 },
+  { name:'テレビのバラエティで過剰な企画', sev:3 },
+  { name:'テレビ部門の下請けいじめ報道', sev:2 }
+];
+function tvIncident(s){
+  const inc = pick(TV_INCIDENTS);
+  s.stats.incidents++;
+  G.queue({
+    head:'【'+inc.name+'】 — テレビ部門',
+    urgent: inc.sev>=3,
+    sfx:'bad',
+    body:'テレビ部門で問題が発生しました。<b>ラジオ側に直接の非はありません</b>が、'
+       + '視聴者・聴取者にとっては同じ「'+s.meta.name+'」です。'
+       + '<br><br>ラジオの編成部にも、どう振る舞うべきかの判断が求められています。',
+    opts:[
+      { label:'ラジオでも経緯を伝え、局として説明する', sub:'誠実だが、自局の電波で自社の恥をさらすことになる。', fn:()=>{
+        s.trust = clamp(s.trust - inc.sev*1.4 + 3, 0, 100);
+        G.log('ラジオでもテレビ部門の問題を報じ、局として説明しました。');
+      }},
+      { label:'テレビ部門の問題として距離を置く', sub:'ラジオは通常編成を維持する。', fn:()=>{
+        s.trust = clamp(s.trust - inc.sev*3.0, 0, 100);
+        G.log('ラジオ側は沈黙。「同じ局なのに触れないのか」との声が上がっています。','bad');
+      }},
+      { label:'一切触れない（社の方針に従う）', sub:'波風は立てない。ただし見ている人は見ている。', risk:true, fn:()=>{
+        if(Math.random() < 0.35 + inc.sev*0.09){
+          s.bpo++;
+          s.trust = clamp(s.trust - inc.sev*4.5, 0, 100);
+          G.log('系列全体で報じなかったことが「身内に甘い」と批判され、BPOに意見が寄せられました。','bad');
+        }else{
+          s.trust = clamp(s.trust - inc.sev*1.8, 0, 100);
+          G.log('ラジオでは触れずに乗り切りました。');
+        }
+      }}
+    ]
+  });
 }
 
 function fireIncident(s, inc, djHint){
@@ -1164,36 +1224,41 @@ G.repay = function(amt){
 };
 
 /* ---------- 建設 ---------- */
+/* 建設費は市場規模（地価・人件費）で変わる */
+G.priceOf = (s, def) => Math.round(def.cost * G.buildMul(s));
+
 G.buildCity = function(x,y,defId){
   const s = G.state, c = s.city, i = y*c.w+x;
   const def = D.CITY_BUILD.find(d=>d.id===defId);
+  const price = G.priceOf(s, def);
   if(def.bulldoze){
     if(!c.build[i]){ UI.toast('撤去するものがありません'); return false; }
-    if(s.money<def.cost){ UI.toast('資金不足','bad'); return false; }
-    s.money -= def.cost; c.build[i]=null; computeCoverage(s); UI.refresh(); return true;
+    if(s.money<price){ UI.toast('資金不足','bad'); return false; }
+    s.money -= price; c.build[i]=null; computeCoverage(s); UI.refresh(); return true;
   }
   if(c.terrain[i]===1){ UI.toast('海上には建てられません','bad'); return false; }
   if(c.build[i]){ UI.toast('すでに建物があります','bad'); return false; }
   if(def.reqLicense && !s.licenses.includes(def.reqLicense)){
     UI.toast('【'+D.LICENSES.find(l=>l.id===def.reqLicense).name+'】が必要です','bad'); return false;
   }
-  if(s.money<def.cost){ UI.toast('資金不足（'+money(def.cost)+'）','bad'); return false; }
-  s.money -= def.cost;
+  if(s.money<price){ UI.toast('資金不足（'+money(price)+'）','bad'); return false; }
+  s.money -= price;
   c.build[i] = { id:defId };
   if(def.power && c.terrain[i]===2) UI.toast('山上に設置。見通しが良く効率的です','good');
   computeCoverage(s);
   AUDIO.play('build');
-  G.log(def.name+'を建設（'+money(def.cost)+'）');
+  G.log(def.name+'を建設（'+money(price)+'）');
   UI.refresh();
   return true;
 };
 G.buildRoom = function(x,y,defId){
   const s = G.state, st = s.studio, i = y*st.w+x;
   const def = D.ROOMS.find(d=>d.id===defId);
+  const price = G.priceOf(s, def);
   if(def.bulldoze){
     if(!st.cells[i]){ UI.toast('解体するものがありません'); return false; }
-    if(s.money<def.cost) { UI.toast('資金不足','bad'); return false; }
-    s.money -= def.cost; st.cells[i]=null; UI.refresh(); return true;
+    if(s.money<price) { UI.toast('資金不足','bad'); return false; }
+    s.money -= price; st.cells[i]=null; UI.refresh(); return true;
   }
   if(st.cells[i]){ UI.toast('すでに部屋があります','bad'); return false; }
   // 隣接必須
@@ -1202,11 +1267,11 @@ G.buildRoom = function(x,y,defId){
     return nx>=0&&ny>=0&&nx<st.w&&ny<st.h && st.cells[ny*st.w+nx];
   });
   if(!adj){ UI.toast('既存の部屋に隣接させてください','bad'); return false; }
-  if(s.money<def.cost){ UI.toast('資金不足（'+money(def.cost)+'）','bad'); return false; }
-  s.money -= def.cost;
+  if(s.money<price){ UI.toast('資金不足（'+money(price)+'）','bad'); return false; }
+  s.money -= price;
   st.cells[i] = { id:defId };
   AUDIO.play('build');
-  G.log(def.name+'を増設（'+money(def.cost)+'）');
+  G.log(def.name+'を増設（'+money(price)+'）');
   UI.refresh();
   return true;
 };
@@ -1222,6 +1287,7 @@ function saveMeta(s){
     ver: G.SAVE_VER,
     name: s.meta.name, call: s.meta.call, freq: s.meta.freq,
     mode: s.meta.mode, diff: s.meta.diff,
+    market: s.meta.market, company: s.meta.company,
     y: s.time.y, m: s.time.m, d: s.time.d,
     money: Math.round(s.money), rating: +(s.ratingAvg||0).toFixed(2),
     trust: Math.round(s.trust), over: !!s.over,
@@ -1312,6 +1378,10 @@ function migrate(s){
   // 自社系列（キー局化）
   if(s.ownNetwork === undefined) s.ownNetwork = null;
   if(s.lastMonth && s.lastMonth.netFee === undefined) s.lastMonth.netFee = 0;
+  // 市場規模・経営形態（追加前のセーブは標準値とみなす）
+  if(!s.meta.market)  s.meta.market  = 'pref';
+  if(!s.meta.company) s.meta.company = 'radio';
+  if(s.lastMonth && s.lastMonth.tvSubsidy === undefined) s.lastMonth.tvSubsidy = 0;
 }
 G._migrate = migrate;
 

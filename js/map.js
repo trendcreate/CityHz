@@ -152,7 +152,7 @@ function buildPalette(el, list, selKey, onSelect){
     d.innerHTML =
       '<span class="pal-swatch" style="background:'+def.color+'"></span>'+
       '<span class="pal-name">'+def.name+'</span>'+
-      '<span class="pal-cost">'+(def.bulldoze?'':def.cost+'万')+'</span>';
+      '<span class="pal-cost">'+(def.bulldoze?'':(G.state?G.priceOf(G.state,def):def.cost)+'万')+'</span>';
     d.title = def.desc || '';
     d.onclick = ()=>{ MAP[selKey] = (MAP[selKey]===def.id?null:def.id); onSelect(); };
     el.appendChild(d);
