@@ -9,13 +9,27 @@
   let bootMarket = 'pref';
   let bootCompany = 'radio';
 
-  document.querySelectorAll('.mode-btn').forEach(b=>{
+  // モードボタン
+  const modeWrap = document.getElementById('bootModes');
+  D.MODES.forEach(m=>{
+    const b = document.createElement('button');
+    b.className = 'mode-btn' + (m.id===bootMode ? ' selected' : '');
+    b.dataset.mode = m.id;
+    b.innerHTML = '<b>'+m.name+'</b><span>'+(m.id==='state'
+      ? 'スポンサーなし。上からの指令に従うか、拒むか。'
+      : m.id==='disaster' ? '地震・台風。報道責任と法令遵守が問われる。'
+      : '経営に集中。災害は起きない。')+'</span>';
     b.onclick = ()=>{
-      document.querySelectorAll('.mode-btn').forEach(x=>x.classList.remove('selected'));
-      b.classList.add('selected');
-      bootMode = b.dataset.mode;
+      bootMode = m.id;
+      modeWrap.querySelectorAll('.mode-btn').forEach(x=>x.classList.toggle('selected', x.dataset.mode===m.id));
+      showModeDesc();
     };
+    modeWrap.appendChild(b);
   });
+  function showModeDesc(){
+    document.getElementById('bootModeDesc').textContent = D.mode(bootMode).desc;
+  }
+  showModeDesc();
 
   // 難易度ボタン
   const diffWrap = document.getElementById('bootDiffs');

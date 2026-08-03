@@ -24,14 +24,8 @@
       <label>周波数 <input id="bootFreq" type="number" value="79.5" step="0.1" min="76" max="94"> MHz</label>
 
       <div class="boot-label">モード</div>
-      <div class="boot-modes">
-        <button class="mode-btn selected" data-mode="normal">
-          <b>通常</b><span>経営に集中。災害は起きない。</span>
-        </button>
-        <button class="mode-btn" data-mode="disaster">
-          <b>災害</b><span>地震・台風。報道責任と法令遵守が問われる。</span>
-        </button>
-      </div>
+      <div class="boot-modes" id="bootModes"></div>
+      <div class="diff-desc" id="bootModeDesc"></div>
 
       <div class="boot-label">難易度</div>
       <div class="boot-diffs" id="bootDiffs"></div>
@@ -79,6 +73,7 @@
       <div class="stat"><label>士気</label><b id="stMorale">-</b></div>
       <div class="stat"><label>カバー人口</label><b id="stPop">-</b></div>
       <div class="stat" title="サイマル配信の聴取動向"><label>配信指数</label><b id="stSimul">-</b></div>
+      <div class="stat hidden" id="statRegime" title="体制からの評価"><label>体制評価</label><b id="stRegime">-</b></div>
     </div>
     <div class="clock">
       <div id="clkDate">-</div>

@@ -51,8 +51,9 @@ UI.refreshTop = function(){
   const s = G.state; if(!s) return;
   $('hdrName').textContent = s.meta.name;
   $('hdrCall').textContent = s.meta.call + ' / ' + s.meta.freq + 'MHz / '
-    + (s.meta.mode==='disaster'?'災害':'通常') + '・' + D.diff(s.meta.diff).name
-    + ' / ' + D.market(s.meta.market).name + '・' + D.company(s.meta.company).name;
+    + D.mode(s.meta.mode).short + '・' + D.diff(s.meta.diff).name
+    + ' / ' + D.market(s.meta.market).name
+    + (G.isState(s) ? '' : '・' + D.company(s.meta.company).name);
   $('stMoney').textContent = money(s.money);
   $('stMoney').style.color = s.money<0 ? '#ff4d4d' : '#39d4ff';
   $('stRating').textContent = pct(s.ratingAvg||0);
@@ -62,6 +63,12 @@ UI.refreshTop = function(){
   $('stPop').textContent = (s.coverPop/10000).toFixed(1)+'万人';
   $('stSimul').textContent = Math.round(s.simulAvg||0);
   $('stSimul').style.color = s.licenses.includes('multi') ? 'var(--accent2)' : '#8296a8';
+  // 国営モードだけ体制評価を表示する
+  $('statRegime').classList.toggle('hidden', !G.isState(s));
+  if(G.isState(s)){
+    $('stRegime').textContent = Math.round(s.regime);
+    $('stRegime').style.color = s.regime<25?'#ff4d4d':(s.regime>70?'#4ade80':'#ffb400');
+  }
   const t = s.time;
   $('clkDate').textContent = t.y+'年目 '+t.m+'月'+t.d+'日('+D.DAYS[t.dow]+')';
   $('clkTime').textContent = String(t.h).padStart(2,'0')+':00';
@@ -154,6 +161,7 @@ UI.openSchedEditor = function(key){
   body += '<label>フォーマット <select id="edFmt">';
   for(const f of D.FORMATS){
     if(f.netOnly && !s.network) continue;
+    if(f.stateOnly && !G.isState(s)) continue;   // 宣伝番組・乱数放送は国営のみ
     const fit = f.fit[blockId]||1;
     body += '<option value="'+f.id+'"'+(f.id===cur.fmt?' selected':'')+'>'
           + f.name+'（適性'+(fit>=1.15?'◎':fit>=1.0?'○':fit>=0.8?'△':'×')+' / 制作費'+f.cost+'万）</option>';
@@ -333,6 +341,40 @@ UI.render_staff = function(){
    ========================================================= */
 UI.render_sales = function(){
   const s = G.state, el = $('view-sales');
+
+  /* 国営モードには商業スポンサーが存在しない */
+  if(G.isState(s)){
+    const m = s.lastMonth;
+    let hs = '<h2>予算</h2>';
+    hs += '<p class="hint">国営放送に商業スポンサーは存在しません。'
+        + '運営費はすべて国家予算から配分され、その額は<b>体制評価</b>に連動します。'
+        + '聴取率がいくら高くても、上の覚えが悪ければ予算は削られます。</p>';
+    hs += '<div class="kpi">'
+        + '<div><label>体制評価</label><b class="'+(s.regime<25?'neg':s.regime>70?'pos':'')+'">'
+          + Math.round(s.regime)+'</b></div>'
+        + '<div><label>国民の信頼</label><b class="'+(s.trust<25?'neg':s.trust>70?'pos':'')+'">'
+          + Math.round(s.trust)+'</b></div>'
+        + '<div><label>先月の配分</label><b>'+(m?money(m.stateBudget||0):'－')+'</b></div>'
+        + '<div><label>受けた指令</label><b>'+s.directives+'件</b></div>'
+        + '<div><label>拒否した回数</label><b class="'+(s.defied>0?'neg':'')+'">'+s.defied+'回</b></div>'
+        + '<div><label>国際的非難</label><b class="'+(s.condemn>10?'neg':'')+'">'
+          + Math.round(s.condemn)+'</b></div>'
+        + '</div>';
+    hs += '<div class="card"><b>予算の算定</b><br>'
+        + '基礎額 620万 ＋ 体制評価 × 26万 を、市場規模と難易度で調整した額が毎月配分されます。'
+        + '<br>現在の見込み：<b>'
+        + money((620 + s.regime*26) * G.mkt(s).pop * G.dif(s).pay) + ' / 月</b></div>';
+    hs += '<div class="card"><b>体制評価の上げ方と、その代償</b><br>'
+        + '編成に'+GL.link('propaganda','体制宣伝番組')+'や'+GL.link('numbers','乱数放送')+'を入れる、'
+        + '<a class="gl-link" data-gl="jamming">妨害電波塔</a>を建てる、'
+        + 'そして何より<b>上からの指令に従う</b>こと。'
+        + '<br>いずれも国民の信頼を確実に削ります。'
+        + '<span style="color:#ff8a8a">信頼が10を切ったまま体制評価だけが高い状態になると、'
+        + '「誰にも聴かれない放送」として終幕を迎えます。</span></div>';
+    el.innerHTML = hs;
+    return;
+  }
+
   let h = '<h2>営業 / スポンサー</h2>';
   h += '<p class="hint">スポンサーは<b>特定の時間帯のCM枠</b>を買います。枠は1時間帯あたり'+D.CONST.CM_SLOTS+'本までです。'
      + '約束した聴取率（保証値）に届かないと支払いが減り、続けば打ち切られます。'
@@ -473,6 +515,42 @@ UI.render_legal = function(){
   const s = G.state, el = $('view-legal');
   const nextY = Math.ceil(s.time.y/D.CONST.LICENSE_TERM_Y)*D.CONST.LICENSE_TERM_Y;
   const risk = s.admin*2 + s.bpo*4 + s.stats.illegalForecast*6;
+  if(G.isState(s)){
+    let hl = '<h2>統制 / 忠誠</h2>';
+    hl += '<p class="hint">この国に'+GL.link('hoso4','放送法第4条')+'にあたる規定はありません。'
+        + '政治的公平を求める条文も、'+GL.link('bpo','BPO')+'のような第三者機関も存在しません。'
+        + '放送の正しさを決めるのは、上からの評価だけです。</p>';
+    hl += '<div class="kpi">'
+        + '<div><label>体制評価</label><b class="'+(s.regime<25?'neg':s.regime>70?'pos':'')+'">'
+          + Math.round(s.regime)+'</b></div>'
+        + '<div><label>国民の信頼</label><b class="'+(s.trust<25?'neg':'')+'">'+Math.round(s.trust)+'</b></div>'
+        + '<div><label>思想上の注意</label><b class="'+(s.admin?'neg':'')+'">'+s.admin+'件</b></div>'
+        + '<div><label>査問</label><b class="'+(s.bpo?'neg':'')+'">'+s.bpo+'件</b></div>'
+        + '<div><label>指令の拒否</label><b class="'+(s.defied?'neg':'')+'">'+s.defied+'回</b></div>'
+        + '</div>';
+    hl += '<div class="card"><b>終わり方は二つあります</b><br>'
+        + '<span style="color:#ff8a8a">体制評価が12を下回る</span> — 局長の任を解かれます。'
+        + '指令を拒み続ければこうなります。<br>'
+        + '<span style="color:#ff8a8a">国民の信頼が10を下回り、体制評価だけが高い</span> — '
+        + '誰も放送を信じなくなり、人々は国外の短波に耳を傾けます。'
+        + '<br><br>どちらも避けるには、従うべきところと譲れないところを見極めるしかありません。'
+        + '「形式的に従い、骨抜きにする」という選択肢は、'
+        + 'うまくいけば両方を守れますが、露見すれば拒否より重く扱われます。</div>';
+    hl += '<h3>許認可</h3><div style="overflow-x:auto"><table>'
+        + '<tr><th>種別</th><th class="num">費用</th><th>状態</th><th></th></tr>';
+    for(const l of D.LICENSES){
+      const has = s.licenses.includes(l.id);
+      hl += '<tr><td><b>'+l.name+'</b><br><span style="color:#8296a8;font-size:11px">'+l.desc+'</span></td>'
+         + '<td class="num">'+(l.cost?money(l.cost):'－')+'</td>'
+         + '<td>'+(has?'<span class="tag on">取得済</span>':'<span class="tag off">未取得</span>')+'</td>'
+         + '<td>'+(has||l.auto?'':'<button class="btn pri" data-lic="'+l.id+'">申請</button>')+'</td></tr>';
+    }
+    hl += '</table></div>';
+    el.innerHTML = hl;
+    el.querySelectorAll('[data-lic]').forEach(b=>b.onclick=()=>G.buyLicense(b.dataset.lic));
+    return;
+  }
+
   let h = '<h2>免許 / コンプライアンス</h2>';
   h += '<div class="kpi">'
      + '<div><label>行政指導</label><b class="'+(s.admin?'neg':'')+'">'+s.admin+'件</b></div>'
@@ -845,7 +923,7 @@ UI.slotDialog = function(kind){
 /* 設定：ゲーム途中で災害モードのON/OFFを切り替える */
 UI.settingsDialog = function(){
   const s = G.state; if(!s) return;
-  const onNow = s.meta.mode==='disaster';
+  const onNow = G.disastersOn(s);
   const body =
     '<label class="chk" style="font-size:13px">'
     + '<input type="checkbox" id="setDisaster"'+(onNow?' checked':'')+'> 災害モードを有効にする'
@@ -854,18 +932,26 @@ UI.settingsDialog = function(){
     + '現在進行中の災害があれば、それはそのまま収束するまで続きます。'
     + 'オンに戻せば、いつからでも通常の確率で再び発生し始めます。</p>'
     + (s.disasterActive ? '<p class="hint" style="color:#ff8a8a">現在【'+s.disasterActive.name+'】報道体制が進行中です。</p>' : '')
-    + '<p class="hint">現在の難易度：<b>'+D.diff(s.meta.diff).name+'</b>'
-    + '（難易度は開局時に固定され、途中では変更できません）</p>';
+    + '<p class="hint">現在の体制：<b>'+D.mode(s.meta.mode).name+'</b>'
+    + ' / 難易度：<b>'+D.diff(s.meta.diff).name+'</b>'
+    + '（体制と難易度は開局時に固定され、途中では変更できません）</p>';
   UI.showModal({
     head:'設定',
     bodyHtml: body,
     opts:[
       { label:'適用する', fn:()=>{
         const on = $('setDisaster').checked;
-        const was = s.meta.mode;
-        s.meta.mode = on ? 'disaster' : 'normal';
-        if(was !== s.meta.mode){
-          G.log(on ? '設定変更：災害モードを<b>有効</b>にしました。' : '設定変更：災害モードを<b>無効</b>にしました。以後、新規の災害は発生しません。',
+        const was = G.disastersOn(s);
+        if(G.isState(s)){
+          // 国営モードは維持したまま、災害の有無だけを切り替える
+          s.flags.noDisaster = !on;
+        } else {
+          s.meta.mode = on ? 'disaster' : 'normal';
+          s.flags.noDisaster = false;
+        }
+        if(was !== on){
+          G.log(on ? '設定変更：災害を<b>有効</b>にしました。'
+                   : '設定変更：災害を<b>無効</b>にしました。以後、新規の災害は発生しません。',
                 on ? 'warn' : '');
           UI.toast('設定を更新しました','good');
           UI.refreshTop();

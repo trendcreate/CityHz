@@ -147,6 +147,8 @@ MAP.drawStudio = function(){
 function buildPalette(el, list, selKey, onSelect){
   el.innerHTML = '<h4>'+ (selKey==='citySel'?'建設メニュー':'増改築メニュー') +'</h4>';
   for(const def of list){
+    // 国営専用の設備は該当モードでのみ出す
+    if(def.stateOnly && !(G.state && G.isState(G.state))) continue;
     const d = document.createElement('div');
     d.className = 'pal-item' + (MAP[selKey]===def.id ? ' sel':'');
     d.innerHTML =

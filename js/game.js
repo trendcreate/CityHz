@@ -42,6 +42,7 @@ G.newGame = function(opts){
     ownNetwork: null,   // 自社系列（キー局化）。{ name, affiliates, foundedY, foundedM }
     sw: { target:'seasia', bands:{}, reports:0, pending:0, veri:0, intlFame:0,
           jam:0, jamTarget:null, reach:0 },   // 国際向け短波放送
+    regime: 55, condemn: 0, directives: 0, defied: 0,   // 国営モード：体制評価・国際的非難・指令
     staff: [], candidates: [],
     freeMarket: [], agencyBlock: {},
     sponsors: [], offers: [],
@@ -194,7 +195,7 @@ function studioBonus(s){
   return b;
 }
 function cityBonus(s){
-  const b = { sales:0, reach:0, mobile:0, tx:0, sw:0, upkeep:0 };
+  const b = { sales:0, reach:0, mobile:0, tx:0, sw:0, jammer:0, upkeep:0 };
   for(const cell of s.city.build){
     if(!cell) continue;
     const def = D.CITY_BUILD.find(d=>d.id===cell.id); if(!def) continue;
@@ -204,6 +205,7 @@ function cityBonus(s){
     if(def.mobile) b.mobile += def.mobile;
     if(def.power) b.tx++;
     if(def.sw) b.sw++;
+    if(def.jammer) b.jammer += def.jammer;
   }
   return b;
 }
@@ -357,6 +359,9 @@ function talentRenewal(s, t){
 }
 
 G.dif = s => D.diff(s.meta.diff);
+/* 国営放送モードかどうか。政治的公平や商業放送の前提が丸ごと外れる */
+G.isState = s => s.meta.mode === 'state';
+G.disastersOn = s => s.meta.mode !== 'normal' && !s.flags.noDisaster;
 G.mkt = s => D.market(s.meta.market);
 G.com = s => D.company(s.meta.company);
 /* 難易度・市場規模・経営形態を合成した倍率 */
@@ -378,6 +383,121 @@ G.bestOf  = (s,role,key) => {
   if(!a.length) return null;
   return a.reduce((p,c)=> (c[key]||0)*(1-c.fatigue/220) > (p[key]||0)*(1-p.fatigue/220) ? c : p);
 };
+
+/* =========================================================
+   国営放送モード
+   商業放送の前提（スポンサー・政治的公平・BPO）が丸ごと外れ、
+   かわりに「体制評価」と「国民の信頼」という相反する2本の指標で運営する。
+   ========================================================= */
+
+/* 乱数放送の送出フレーバー */
+function numbersBurst(s){
+  const call = pick(D.NUMBERS_CALLS);
+  const g = () => String(rint(0,9))+String(rint(0,9))+String(rint(0,9))
+                + String(rint(0,9))+String(rint(0,9));
+  G.log('<span style="color:#a78bfa">'+call+'　'+call+'　'
+      + g()+'　'+g()+'　'+g()+'　……</span>');
+}
+
+/* 毎月の指令 */
+function maybeDirective(s){
+  if(!G.isState(s)) return;
+  const p = 0.30 * G.dif(s).incident;
+  if(Math.random() > p) return;
+  let pool = D.DIRECTIVES.filter(d => !d.disasterOnly || s.disasterActive);
+  if(!pool.length) return;
+  const d = pick(pool);
+  s.directives++;
+
+  const comply = ()=>{
+    s.regime = clamp(s.regime + d.regime, 0, 100);
+    s.trust  = clamp(s.trust  + d.trust,  0, 100);
+    if(d.condemn) s.condemn += d.condemn;
+    if(d.wipeSchedule){
+      for(const k in s.schedule) s.schedule[k] = { fmt:'propaganda', dj:s.schedule[k].dj };
+      G.log('全時間帯の編成を差し替えました。');
+    }
+    G.log('指令に従いました。体制評価 +'+d.regime+' / 国民の信頼 '+d.trust, 'warn');
+  };
+
+  G.queue({
+    head:'【指令】'+d.name,
+    urgent:true,
+    sfx:'bad',
+    body: d.body + '<br><br><span style="color:#8296a8">'
+        + '現在の体制評価 '+Math.round(s.regime)+' / 国民の信頼 '+Math.round(s.trust)
+        + '　これまでに拒否した回数 '+s.defied+'回</span>',
+    opts:[
+      { label:'指令に従う', sub:'体制評価 +'+d.regime+' / 国民の信頼 '+d.trust, fn:comply },
+      { label:'形式的に従い、骨抜きにする',
+        sub:'目立たないよう最小限に。露見すれば拒否より重く扱われる。', risk:true, fn:()=>{
+        if(Math.random() < 0.42){
+          s.regime = clamp(s.regime - d.regime*1.3, 0, 100);
+          s.defied++;
+          G.log('骨抜きにしたことが上に伝わりました。<b>面従腹背と見なされています。</b>','bad');
+        }else{
+          s.regime = clamp(s.regime + d.regime*0.45, 0, 100);
+          s.trust  = clamp(s.trust  + d.trust*0.30,  0, 100);
+          G.log('指令を形式的にこなしました。実質的な影響は最小限に抑えています。');
+        }
+      }},
+      { label:'拒否する', sub:'体制評価が大きく下がる。拒否が続けば地位を失う。', risk:true, fn:()=>{
+        s.regime = clamp(s.regime - (12 + d.regime), 0, 100);
+        s.trust  = clamp(s.trust + Math.abs(d.trust)*0.5, 0, 100);
+        s.defied++;
+        s.morale = clamp(s.morale + 4, 0, 100);
+        G.log('指令を拒否しました。局内には静かな動揺と、わずかな安堵があります。','warn');
+      }}
+    ]
+  });
+}
+
+/* 国営モードの月次処理 */
+function stateMonthly(s, L){
+  const cb = cityBonus(s);
+  // 妨害電波塔・大出力送信所は体制の覚えをよくするが、国際的非難を積み上げる
+  if(cb.jammer){
+    s.regime = clamp(s.regime + cb.jammer*0.8, 0, 100);
+    s.condemn += cb.jammer*0.5;
+  }
+  const mega = s.city.build.filter(c=>c && c.id==='tx_mega').length;
+  if(mega) s.condemn += mega*0.4;
+
+  // 編成に入っている宣伝番組・乱数放送が体制評価を押し上げる
+  let reg = 0;
+  for(const k in s.schedule){
+    const f = D.fmt(s.schedule[k].fmt);
+    if(f && f.regime) reg += f.regime;
+  }
+  s.regime = clamp(s.regime + reg, 0, 100);
+  // 何もしなければ体制評価はじりじり下がる
+  s.regime = clamp(s.regime - 1.6, 0, 100);
+
+  // 国家予算。体制評価に強く連動する
+  L.stateBudget = (620 + s.regime*26) * G.mkt(s).pop * G.dif(s).pay;
+
+  // 国際的非難が積み上がると、対外的な圧力として跳ね返る
+  if(s.condemn > 12 && Math.random() < 0.22){
+    s.condemn = Math.max(0, s.condemn - 6);
+    s.regime = clamp(s.regime - 4, 0, 100);
+    G.log('国際機関から周波数運用について正式な抗議を受けました。'
+        + '体制はこれを「敵対的宣伝」と切り捨てつつ、内心では厄介がっています。','bad');
+  }
+
+  // 終幕の判定
+  if(s.regime < 12){
+    G.gameOver('体制評価が地に落ちました。あなたは局長の任を解かれ、'
+             + '後任が着任しました。放送はあなたなしで続きます。');
+    return;
+  }
+  if(s.trust < 10 && s.regime > 55){
+    G.gameOver('国民は、この局が伝えることを何ひとつ信じなくなりました。'
+             + '人々は国外の短波放送に耳を傾けています。'
+             + 'あなたは体制の覚えめでたい局長として、誰にも聴かれない電波を出し続けています。');
+    return;
+  }
+  maybeDirective(s);
+}
 
 /* =========================================================
    国際向け短波放送
@@ -486,6 +606,8 @@ G.slotsFree = (s, blockId) =>
   - s.sponsors.filter(sp => sp.block===blockId).length;
 
 function refreshOffers(s){
+  // 国営放送に商業スポンサーは存在しない
+  if(G.isState(s)){ s.offers = []; return; }
   const salesPower = G.salesPower(s);
   // ラテ兼営はテレビの営業網を共有するため、持ち込まれる案件数が多い
   const n = clamp(Math.round(2 + salesPower*0.9 + s.fame/30 + G.com(s).offers), 1, 11);
@@ -574,6 +696,9 @@ G.programScore = function(s, cell, blockId){
 
 G.computeRating = function(s, cell, blockId){
   const blk = D.BLOCKS.find(b=>b.id===blockId);
+  const f0 = D.fmt(cell.fmt);
+  // 乱数放送は不特定多数に向けた放送ではないので、聴取率という概念を持たない
+  if(f0 && f0.noAudience) return { rating:0, base:0, share:0, score:1 };
   const ours = G.programScore(s, cell, blockId);
   let rivalSum = 0;
   for(const r of s.rivals){
@@ -621,7 +746,10 @@ function hourly(s){
   if(s._lastBlock !== blk.id){
     s._lastBlock = blk.id;
     AUDIO.setMood(blk.id);
-    if(D.fmt(cell.fmt).id !== 'filler') AUDIO.playThrottled('jingle', 7);
+    if(D.fmt(cell.fmt).id === 'numbers'){
+      AUDIO.playThrottled('timeSignal', 12);
+      if(Math.random() < 0.5) numbersBurst(s);
+    } else if(D.fmt(cell.fmt).id !== 'filler') AUDIO.playThrottled('jingle', 7);
   }
   const r = G.computeRating(s, cell, blk.id);
   s.rating = r.rating;
@@ -723,7 +851,7 @@ function endOfDay(s){
 }
 
 function endOfMonth(s){
-  const L = { adRev:0, netRev:0, simulRev:0, netFee:0, tvSubsidy:0, swRev:0,
+  const L = { adRev:0, netRev:0, simulRev:0, netFee:0, tvSubsidy:0, swRev:0, stateBudget:0,
               salary:0, talent:0, upkeep:0, prod:s.ledger.prod, fee:0, misc:0, swCost:0 };
   // 広告収入
   const drop = [];
@@ -807,7 +935,8 @@ function endOfMonth(s){
     L.netFee = on.affiliates * (7 + on.affiliates*0.25) * G.payMul(s);
   }
 
-  const income = L.adRev + s.ledger.netRev + L.simulRev + L.netFee + L.tvSubsidy + L.swRev;
+  if(G.isState(s)) stateMonthly(s, L);
+  const income = L.adRev + s.ledger.netRev + L.simulRev + L.netFee + L.tvSubsidy + L.swRev + L.stateBudget;
   const cost = L.salary + L.talent + L.upkeep + L.prod + L.fee + L.misc + L.swCost;
   s.money += income - cost;
   s.lastMonth = { ...L, netRev:s.ledger.netRev, income, cost, profit:income-cost };
@@ -853,7 +982,10 @@ function endOfMonth(s){
   if(com.tvRisk && Math.random() < com.tvRisk * dif.incident) tvIncident(s);
   G.autosave();
   // 破綻判定
-  if(s.money < G.dif(s).floor){ G.gameOver('債務超過により経営破綻。'+s.meta.name+'は放送を停止しました。'); }
+  // 国営局は商業的に破綻しない（体制評価が落ちれば別の形で終わる）
+  if(!G.isState(s) && s.money < G.dif(s).floor){
+    G.gameOver('債務超過により経営破綻。'+s.meta.name+'は放送を停止しました。');
+  }
 }
 
 function endOfYear(s){
@@ -899,7 +1031,7 @@ function licenseRenewal(s){
    災害
    ========================================================= */
 function maybeDisaster(s){
-  if(s.meta.mode==='normal') return;
+  if(!G.disastersOn(s)) return;
   if(s.disasterActive) return;
   const base = 0.018 * G.dif(s).disaster;
   if(Math.random() > base) return;
@@ -1425,7 +1557,7 @@ function saveMeta(s){
     ver: G.SAVE_VER,
     name: s.meta.name, call: s.meta.call, freq: s.meta.freq,
     mode: s.meta.mode, diff: s.meta.diff,
-    market: s.meta.market, company: s.meta.company,
+    market: s.meta.market, company: s.meta.company, regime: s.regime,
     y: s.time.y, m: s.time.m, d: s.time.d,
     money: Math.round(s.money), rating: +(s.ratingAvg||0).toFixed(2),
     trust: Math.round(s.trust), over: !!s.over,
@@ -1524,6 +1656,12 @@ function migrate(s){
   if(!s.sw) s.sw = { target:'seasia', bands:{}, reports:0, pending:0, veri:0,
                      intlFame:0, jam:0, jamTarget:null, reach:0 };
   if(s.lastMonth && s.lastMonth.swRev === undefined){ s.lastMonth.swRev = 0; s.lastMonth.swCost = 0; }
+  // 国営モード
+  if(s.regime === undefined) s.regime = 55;
+  if(s.condemn === undefined) s.condemn = 0;
+  if(s.directives === undefined) s.directives = 0;
+  if(s.defied === undefined) s.defied = 0;
+  if(s.lastMonth && s.lastMonth.stateBudget === undefined) s.lastMonth.stateBudget = 0;
 }
 G._migrate = migrate;
 
