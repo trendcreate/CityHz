@@ -110,6 +110,9 @@ D.CITY_BUILD = [
     desc:'街角スタジオ。地域密着度と知名度が上がる。', reachBonus:1 },
   { id:'garage',name:'中継車庫',     cost:1400,  up:16, color:'#c084fc', size:1,
     desc:'中継車を配備。災害時の現場報道が可能になる。', mobile:1 },
+  { id:'tx_sw', name:'短波送信所',   cost:17000, up:120, color:'#a78bfa', size:1, sw:true,
+    desc:'国際向け短波放送の送信所。カーテンアンテナを張る広大な敷地が要る。'
+       + '国内のカバー人口には一切寄与しない。', reqLicense:'intl' },
   { id:'bulldoze',name:'撤去',       cost:120,   color:'#888', bulldoze:true, desc:'建物を撤去する。' }
 ];
 
@@ -164,6 +167,45 @@ D.NETWORKS = [
     desc:'ゆるい相互協定。番組販売と災害時の応援が受けられる。' }
 ];
 
+/* ---------- 国際向け短波放送 ----------
+   tz  : 日本時間からの時差（負＝日本より遅れている）
+   pop : 潜在聴取者の規模（相対値）
+   jam : 妨害電波を受ける確率
+   dist: 距離の目安（伝搬の難しさ）
+--------------------------------------- */
+D.SW_TARGETS = [
+  { id:'easia',   name:'東アジア',   tz:-1,   pop:1600, jam:0.30, dist:2,
+    desc:'最も近く届きやすい。ただし国によっては組織的な妨害電波が飛んでくる。' },
+  { id:'seasia',  name:'東南アジア', tz:-2,   pop:1400, jam:0.06, dist:3,
+    desc:'日系企業の駐在員と日本語学習者が多く、受信報告も届きやすい。' },
+  { id:'sasia',   name:'南アジア',   tz:-3.5, pop:1800, jam:0.04, dist:4,
+    desc:'潜在聴取者は最大規模。ただし日本語より現地語のニーズが高い。' },
+  { id:'oceania', name:'オセアニア', tz:1,    pop:320,  jam:0.02, dist:3,
+    desc:'時差が小さく狙いやすいが、市場そのものは小さい。' },
+  { id:'europe',  name:'ヨーロッパ', tz:-8,   pop:1100, jam:0.03, dist:6,
+    desc:'遠距離。夜間の低い周波数帯を的確に選ぶ必要がある。' },
+  { id:'namerica',name:'北米',       tz:-14,  pop:700,  jam:0.02, dist:6,
+    desc:'太平洋越え。日系人と短波愛好家（BCLer）に届く。' },
+  { id:'samerica',name:'南米',       tz:-12,  pop:600,  jam:0.02, dist:8,
+    desc:'ほぼ地球の裏側。日系移民社会があるが、届かせるのは難事業。' },
+  { id:'africa',  name:'アフリカ',   tz:-8,   pop:900,  jam:0.05, dist:7,
+    desc:'最も難しい方面。到達できれば国際的な評価は高い。' }
+];
+D.swTarget = id => D.SW_TARGETS.find(t=>t.id===id) || D.SW_TARGETS[0];
+
+/* 短波の放送バンド（メートル表記は波長） */
+D.SW_BANDS = [
+  { id:'75m', name:'75mb', mhz:3.9  },
+  { id:'49m', name:'49mb', mhz:6.0  },
+  { id:'41m', name:'41mb', mhz:7.2  },
+  { id:'31m', name:'31mb', mhz:9.6  },
+  { id:'25m', name:'25mb', mhz:11.8 },
+  { id:'19m', name:'19mb', mhz:15.3 },
+  { id:'16m', name:'16mb', mhz:17.6 },
+  { id:'13m', name:'13mb', mhz:21.5 }
+];
+D.swBand = id => D.SW_BANDS.find(b=>b.id===id);
+
 /* ---------- 許認可・免許 ---------- */
 D.LICENSES = [
   { id:'base',     name:'放送局免許',        cost:0,    need:0,   auto:true,
@@ -175,7 +217,10 @@ D.LICENSES = [
   { id:'emerg',    name:'緊急警報放送(EWS)設備', cost:1800, need:0,
     desc:'受信機を起動させる緊急警報信号の送出設備。災害時の到達率が跳ね上がる。' },
   { id:'multi',    name:'マルチメディア放送', cost:3000, need:0,
-    desc:'データ放送・アプリ同時配信。若年層のリーチが伸びる。' }
+    desc:'データ放送・アプリ同時配信。若年層のリーチが伸びる。' },
+  { id:'intl',     name:'国際放送業務の認定', cost:3600, need:0,
+    desc:'短波による国外向け放送を行うための認定。周波数は国際的な調整を経て割り当てられる。'
+       + 'これがないと短波送信所は建てられない。' }
 ];
 
 /* ---------- 災害 ---------- */
@@ -306,5 +351,7 @@ D.CONST = {
   COPYRIGHT_RATE:0.035, // 著作権使用料(売上比)
   LICENSE_TERM_Y:5,
   NONEXCL_PENALTY:0.87, // 非専属タレントの効果減
-  SAVE_SLOTS:3
+  SAVE_SLOTS:3,
+  SW_TX_UPKEEP:380,     // 短波送信所の月額運用費（大電力なので電気代が重い）
+  SW_VERI_COST:0.9      // ベリカード1通あたりの費用（印刷・国際郵便）
 };

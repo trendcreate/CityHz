@@ -2,6 +2,8 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1b232c">
 <title>CityHz - ラジオ局運営</title>
 <link rel="stylesheet" href="css/style.css">
 </head>
@@ -91,6 +93,7 @@
     <div class="audio-ctl">
       <button id="btnBgm" class="on" title="BGM">♪</button>
       <button id="btnSfx" class="on" title="効果音">🔔</button>
+      <button id="btnPanel" title="ON AIR / ログ">▤</button>
     </div>
   </header>
 
@@ -104,6 +107,7 @@
       <button class="nav" data-view="network">系列</button>
       <button class="nav" data-view="legal">免許</button>
       <button class="nav" data-view="finance">財務</button>
+      <button class="nav" data-view="intl">国際</button>
       <button class="nav" data-view="glossary">用語辞典</button>
       <div class="nav-spacer"></div>
       <button class="nav small" id="btnTut">ガイド</button>
@@ -135,6 +139,7 @@
       <div class="view hidden panel" id="view-network"></div>
       <div class="view hidden panel" id="view-legal"></div>
       <div class="view hidden panel" id="view-finance"></div>
+      <div class="view hidden panel" id="view-intl"></div>
       <div class="view hidden panel" id="view-glossary"></div>
     </section>
 

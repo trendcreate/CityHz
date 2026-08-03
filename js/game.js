@@ -40,6 +40,8 @@ G.newGame = function(opts){
     licenses: ['base'],
     network: null, networkMonths: 0,
     ownNetwork: null,   // 自社系列（キー局化）。{ name, affiliates, foundedY, foundedM }
+    sw: { target:'seasia', bands:{}, reports:0, pending:0, veri:0, intlFame:0,
+          jam:0, jamTarget:null, reach:0 },   // 国際向け短波放送
     staff: [], candidates: [],
     freeMarket: [], agencyBlock: {},
     sponsors: [], offers: [],
@@ -192,7 +194,7 @@ function studioBonus(s){
   return b;
 }
 function cityBonus(s){
-  const b = { sales:0, reach:0, mobile:0, tx:0, upkeep:0 };
+  const b = { sales:0, reach:0, mobile:0, tx:0, sw:0, upkeep:0 };
   for(const cell of s.city.build){
     if(!cell) continue;
     const def = D.CITY_BUILD.find(d=>d.id===cell.id); if(!def) continue;
@@ -201,6 +203,7 @@ function cityBonus(s){
     if(def.reachBonus) b.reach += def.reachBonus;
     if(def.mobile) b.mobile += def.mobile;
     if(def.power) b.tx++;
+    if(def.sw) b.sw++;
   }
   return b;
 }
@@ -374,6 +377,101 @@ G.bestOf  = (s,role,key) => {
   const a = G.staffOf(s,role);
   if(!a.length) return null;
   return a.reduce((p,c)=> (c[key]||0)*(1-c.fatigue/220) > (p[key]||0)*(1-p.fatigue/220) ? c : p);
+};
+
+/* =========================================================
+   国際向け短波放送
+   短波は電離層のF層で反射して地球の裏側まで届く。
+   ただし「最適な周波数」は昼夜・季節・太陽活動で刻々と変わるため、
+   時間帯ごとにバンドを選び直す必要がある。ここがこの機能の遊びになる。
+   ========================================================= */
+G.swActive = s => cityBonus(s).sw > 0;
+
+/* 太陽活動（約11年周期）。0=極小期 1=極大期 */
+G.solarCycle = function(s){
+  const t = (s.time.y - 1) + (s.time.m - 1)/12;
+  return 0.5 + 0.5*Math.sin(t/11 * Math.PI*2 - Math.PI/2);
+};
+
+/* その時刻・その方面で最適な周波数(MHz) */
+G.swOptimalMHz = function(s, targetId, hour){
+  const t = D.swTarget(targetId);
+  // 太陽高度の近似（正午=1 / 日の出・日没=0.5 / 深夜=0）。
+  // 薄明の時間帯が中間の周波数になるよう、階段ではなく滑らかに変化させる
+  const dayness1 = h => clamp(0.5 + 0.5*Math.sin(Math.PI*(h-6)/12), 0, 1);
+  const local = ((hour + t.tz) % 24 + 24) % 24;
+  // 伝搬路の昼夜。送信側と受信側の平均で近似する
+  const dayness = (dayness1(hour) + dayness1(local)) / 2;
+  // 太陽活動が活発なほど、電離層が高い周波数まで反射できる
+  const solar = G.solarCycle(s);
+  // 季節（1月=冬:+1 / 7月=夏:-1）。夏は日中のD層吸収が強い
+  const season = Math.cos((s.time.m-1)/12 * Math.PI*2);
+  const mhz = 4.6 + dayness*10.5 + solar*4.2 - season*0.7 + t.dist*0.22;
+  return clamp(mhz, 3.5, 22);
+};
+
+/* 選んだバンドの伝搬スコア（0〜1） */
+G.swScore = function(s, targetId, bandId, hour){
+  const band = D.swBand(bandId);
+  if(!band) return 0;
+  const opt = G.swOptimalMHz(s, targetId, hour);
+  const d = (band.mhz - opt) / 4.0;
+  return Math.exp(-d*d);
+};
+
+/* いまの1時間ぶんの到達規模 */
+G.swReach = function(s, hour){
+  if(!G.swActive(s)) return 0;
+  const blk = D.blockAt(hour);
+  const bandId = s.sw.bands[blk.id];
+  if(!bandId) return 0;
+  const t = D.swTarget(s.sw.target);
+  let r = G.swScore(s, s.sw.target, bandId, hour) * t.pop;
+  // 妨害電波を受けている間は激減する
+  if(s.sw.jam > 0 && s.sw.jamTarget === s.sw.target) r *= 0.30;
+  return r;
+};
+
+/* 受信報告書のフレーバー */
+const SW_CITIES = {
+  easia:['ソウル','台北','上海','ウランバートル'],
+  seasia:['バンコク','ジャカルタ','ハノイ','マニラ','クアラルンプール'],
+  sasia:['ニューデリー','コロンボ','ダッカ','カトマンズ'],
+  oceania:['シドニー','オークランド','パース'],
+  europe:['ロンドン','ベルリン','ヘルシンキ','ミラノ','ワルシャワ'],
+  namerica:['シアトル','バンクーバー','ロサンゼルス','デンバー'],
+  samerica:['サンパウロ','リマ','ブエノスアイレス'],
+  africa:['ナイロビ','カイロ','ケープタウン','アクラ']
+};
+
+G.sendVeriCards = function(){
+  const s = G.state;
+  const n = Math.floor(s.sw.pending);
+  if(n <= 0){ UI.toast('発送できる受信報告書がありません','bad'); return; }
+  const cost = Math.round(n * D.CONST.SW_VERI_COST * G.costMul(s));
+  if(s.money < cost){ UI.toast('発送費用 '+money(cost)+' が足りません','bad'); return; }
+  s.money -= cost;
+  s.sw.pending -= n;
+  s.sw.veri += n;
+  // 上に行くほど伸びにくい（頭打ちを作る）
+  s.sw.intlFame = clamp(s.sw.intlFame + n*1.25*(1 - s.sw.intlFame/110), 0, 100);
+  AUDIO.play('cash');
+  G.log('ベリカード'+n+'通を発送しました（'+money(cost)+'）。海外での認知が広がります。','good');
+  UI.refresh();
+};
+
+G.setSwTarget = function(id){
+  const s = G.state;
+  if(s.sw.target === id) return;
+  s.sw.target = id;
+  G.log('短波の目標方面を「'+D.swTarget(id).name+'」に変更しました。');
+  UI.refresh();
+};
+G.setSwBand = function(blockId, bandId){
+  const s = G.state;
+  if(bandId) s.sw.bands[blockId] = bandId;
+  else delete s.sw.bands[blockId];
+  UI.refresh();
 };
 
 /* =========================================================
@@ -553,6 +651,19 @@ function hourly(s){
     const net = D.NETWORKS.find(n=>n.id===s.network);
     s.ledger.netRev += net.share*2.2;   // 現金化は月次決算で
   }
+  // 国際向け短波放送の到達と、受信報告書の到着
+  if(G.swActive(s)){
+    const r = G.swReach(s, s.time.h);
+    s.sw.reach = (s.sw.reach||0)*0.85 + r*0.15;
+    // 届いた規模に応じて、ごく低い確率で受信報告書が届く
+    if(r > 0 && Math.random() < r/500000){
+      s.sw.pending++;
+      s.sw.reports++;
+      const city = pick(SW_CITIES[s.sw.target] || ['海外']);
+      G.log('<b>'+city+'</b>のリスナーから受信報告書が届きました（未返信 '
+          + Math.floor(s.sw.pending)+'通）。','good');
+    }
+  }
   // 事故・不祥事判定
   checkIncident(s, cell, f, blk);
 }
@@ -612,7 +723,8 @@ function endOfDay(s){
 }
 
 function endOfMonth(s){
-  const L = { adRev:0, netRev:0, simulRev:0, netFee:0, tvSubsidy:0, salary:0, talent:0, upkeep:0, prod:s.ledger.prod, fee:0, misc:0 };
+  const L = { adRev:0, netRev:0, simulRev:0, netFee:0, tvSubsidy:0, swRev:0,
+              salary:0, talent:0, upkeep:0, prod:s.ledger.prod, fee:0, misc:0, swCost:0 };
   // 広告収入
   const drop = [];
   for(const sp of s.sponsors){
@@ -651,6 +763,32 @@ function endOfMonth(s){
   // サイマル配信の広告収入。聴取自体はライセンスがなくても伸びるが、
   // 収益化にはマルチメディア放送の許可（データ放送・アプリ配信の正式な仕組み）が要る。
   L.simulRev = s.licenses.includes('multi') ? s.simulAvg * 2.1 * G.payMul(s) : 0;
+  // 国際向け短波放送。基本的に採算の取れる事業ではなく、名声のための投資になる
+  L.swCost = 0; L.swRev = 0;
+  if(G.swActive(s)){
+    L.swCost = D.CONST.SW_TX_UPKEEP * cityBonus(s).sw * G.costMul(s);
+    // 国際的な認知が上がると、輸出企業や公的機関が枠を買ってくれる
+    L.swRev = s.sw.intlFame * 3.6 * G.payMul(s);
+    // 妨害電波の発生と収束
+    if(s.sw.jam > 0){
+      s.sw.jam--;
+      if(s.sw.jam === 0){
+        G.log('妨害電波が止みました。'+D.swTarget(s.sw.jamTarget).name+'向けの受信状況が回復しています。','good');
+        s.sw.jamTarget = null;
+      }
+    } else {
+      const t = D.swTarget(s.sw.target);
+      if(Math.random() < t.jam){
+        s.sw.jam = rint(2,5);
+        s.sw.jamTarget = s.sw.target;
+        AUDIO.play('bad');
+        G.log('<b>'+t.name+'方面で妨害電波を確認。</b>同じ周波数に強力な混信が乗せられています。'
+            + '目標方面を変えるか、収まるのを待つしかありません。','bad');
+      }
+    }
+    // 国際的な知名度は国内の知名度にも効いてくる
+    s.fame = clamp(s.fame + s.sw.intlFame*0.012, 0, 100);
+  }
   // ラテ兼営：テレビ部門からの社内補助。市場規模に比例した安定収入になる
   const com = G.com(s);
   L.tvSubsidy = com.subsidy * G.mkt(s).pop * G.dif(s).pay;
@@ -669,8 +807,8 @@ function endOfMonth(s){
     L.netFee = on.affiliates * (7 + on.affiliates*0.25) * G.payMul(s);
   }
 
-  const income = L.adRev + s.ledger.netRev + L.simulRev + L.netFee + L.tvSubsidy;
-  const cost = L.salary + L.talent + L.upkeep + L.prod + L.fee + L.misc;
+  const income = L.adRev + s.ledger.netRev + L.simulRev + L.netFee + L.tvSubsidy + L.swRev;
+  const cost = L.salary + L.talent + L.upkeep + L.prod + L.fee + L.misc + L.swCost;
   s.money += income - cost;
   s.lastMonth = { ...L, netRev:s.ledger.netRev, income, cost, profit:income-cost };
   s.ledger = { adRev:0, netRev:0, salary:0, talent:0, upkeep:0, prod:0, fee:0, misc:0 };
@@ -1382,6 +1520,10 @@ function migrate(s){
   if(!s.meta.market)  s.meta.market  = 'pref';
   if(!s.meta.company) s.meta.company = 'radio';
   if(s.lastMonth && s.lastMonth.tvSubsidy === undefined) s.lastMonth.tvSubsidy = 0;
+  // 国際向け短波放送
+  if(!s.sw) s.sw = { target:'seasia', bands:{}, reports:0, pending:0, veri:0,
+                     intlFame:0, jam:0, jamTarget:null, reach:0 };
+  if(s.lastMonth && s.lastMonth.swRev === undefined){ s.lastMonth.swRev = 0; s.lastMonth.swCost = 0; }
 }
 G._migrate = migrate;
 

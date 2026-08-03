@@ -225,6 +225,17 @@
   };
   document.getElementById('btnSettings').onclick = ()=> UI.settingsDialog();
 
+  /* ---------- 右パネル（狭い画面ではオーバーレイ） ---------- */
+  const rightbar = document.getElementById('rightbar');
+  document.getElementById('btnPanel').onclick = ()=>{
+    rightbar.classList.toggle('open');
+    AUDIO.play('click');
+  };
+  // 狭い画面でビューを切り替えたらパネルは閉じる
+  document.querySelectorAll('.nav').forEach(b=>{
+    b.addEventListener('click', ()=> rightbar.classList.remove('open'));
+  });
+
   /* ---------- 音量トグル ---------- */
   function syncAudioButtons(){
     document.getElementById('btnBgm').classList.toggle('on', AUDIO.enabled.bgm);
@@ -242,7 +253,7 @@
   window.addEventListener('keydown', e=>{
     if(e.target.tagName==='INPUT'||e.target.tagName==='SELECT') return;
     const map = {'1':'city','2':'studio','3':'sched','4':'staff','5':'sales',
-                 '6':'network','7':'legal','8':'finance','9':'glossary'};
+                 '6':'network','7':'legal','8':'finance','9':'intl','0':'glossary'};
     if(map[e.key]) UI.setView(map[e.key]);
     if(e.key===' '){ e.preventDefault();
       const sp = G.speed===0 ? 1 : 0;

@@ -534,9 +534,11 @@ UI.render_finance = function(){
     const row=(n,v,neg)=>'<tr><td>'+n+'</td><td class="num '+(neg?'neg':'pos')+'">'+(neg?'-':'+')+money(v)+'</td></tr>';
     h += '<table>'+row('広告収入',m.adRev)+row('ネット配分金',m.netRev)+row('サイマル配信収入',m.simulRev||0)
       + row('系列 加盟局分担金',m.netFee||0)+row('テレビ部門からの補助',m.tvSubsidy||0)
+      + row('国際放送 関連収入',m.swRev||0)
       + row('人件費（社員）',m.salary,1)+row('出演料（フリー）',m.talent||0,1)
       + row('設備維持費',m.upkeep,1)+row('番組制作費',m.prod,1)
       + row('電波利用料・著作権料・分担金',m.fee,1)+row('支払利息ほか',m.misc,1)
+      + ((m.swCost||0)>0 ? row('短波送信所 運用費',m.swCost,1) : '')
       + '<tr style="background:#243040"><td><b>当期損益</b></td><td class="num '+(m.profit>=0?'pos':'neg')+'"><b>'
       + (m.profit>=0?'+':'')+money(m.profit)+'</b></td></tr></table>';
   } else h += '<p class="hint">まだ決算がありません（1か月経過後に表示されます）。</p>';
@@ -577,6 +579,118 @@ function sparkline(arr){
     + '<path d="'+d+'" fill="none" stroke="#39d4ff" stroke-width="1.5"/></svg>'
     + '<div style="color:#8296a8;font-size:11px">最高 '+pct(max)+' / 現在 '+pct(arr[arr.length-1])+'</div>';
 }
+
+/* =========================================================
+   国際向け短波放送
+   ========================================================= */
+UI.render_intl = function(){
+  const s = G.state, el = $('view-intl');
+  let h = '<h2>国際放送（短波）</h2>';
+
+  if(!G.swActive(s)){
+    const hasLic = s.licenses.includes('intl');
+    h += '<p class="hint">短波は'+GL.link('denriso','電離層')+'のF層で反射し、'
+       + '地上波では絶対に届かない数千km先まで到達します。'
+       + '国内のカバー人口には一切寄与せず、直接の儲けもほとんどありません。'
+       + 'それでも国際放送を持つ局は、国内では得られない種類の知名度と信頼を積み上げられます。</p>';
+    h += '<div class="card"><b>始めるには</b><br>'
+       + '<span class="tag '+(hasLic?'on':'off')+'">① 国際放送業務の認定（【免許】で申請）</span> '
+       + '<span class="tag off">② 【市街地】に短波送信所を建設</span>'
+       + '<br><span style="color:#8296a8;font-size:11px">短波送信所は'
+       + money(G.priceOf(s, D.CITY_BUILD.find(d=>d.id==='tx_sw')))
+       + '、月額運用費も重い巨大設備です。</span></div>';
+    el.innerHTML = h;
+    return;
+  }
+
+  const t = D.swTarget(s.sw.target);
+  const solar = G.solarCycle(s);
+  const jammed = s.sw.jam>0 && s.sw.jamTarget===s.sw.target;
+
+  h += '<div class="kpi">'
+     + '<div><label>目標方面</label><b>'+t.name+'</b></div>'
+     + '<div><label>到達規模</label><b>'+Math.round(s.sw.reach||0)+'</b></div>'
+     + '<div><label>国際知名度</label><b>'+Math.round(s.sw.intlFame)+'</b></div>'
+     + '<div><label>受信報告書</label><b>'+s.sw.reports+'通</b></div>'
+     + '<div><label>未返信</label><b class="'+(s.sw.pending>0?'neg':'')+'">'+Math.floor(s.sw.pending)+'通</b></div>'
+     + '<div><label>太陽活動</label><b>'+(solar<0.33?'極小期':solar<0.66?'中間':'極大期')+'</b></div>'
+     + '</div>';
+
+  if(jammed)
+    h += '<p class="hint" style="color:#ff8a8a">⚠ '+t.name+'方面は現在<b>妨害電波</b>を受けています'
+       + '（あと'+s.sw.jam+'か月）。到達規模が30%まで落ちています。方面を変えるのも一手です。</p>';
+
+  h += '<p class="hint">短波の「最適な周波数」は<b>昼夜・季節・太陽活動</b>で刻々と変わります。'
+     + '昼は電離層が高い周波数まで反射できるので高いバンドを、夜は低いバンドを使うのが原則です。'
+     + '下の表で時間帯ごとにバンドを選んでください。'
+     + '<b>◎</b>が最適、<b>×</b>は電波が突き抜けるか吸収されて届きません。</p>';
+
+  /* 時間帯 × バンドの適合表 */
+  h += '<h3>周波数の割り当て</h3>';
+  h += '<div style="overflow-x:auto"><table><tr><th>時間帯</th><th>現地時刻</th><th class="num">最適</th>';
+  for(const b of D.SW_BANDS) h += '<th class="num">'+b.name+'</th>';
+  h += '<th>選択中</th></tr>';
+  for(const blk of D.BLOCKS){
+    const mid = blk.id==='mid' ? 2 : Math.floor((blk.h0+blk.h1)/2);
+    const opt = G.swOptimalMHz(s, s.sw.target, mid);
+    const local = ((mid + t.tz)%24+24)%24;
+    const cur = s.sw.bands[blk.id];
+    h += '<tr><td>'+blk.name+'<br><span style="font-size:10px;color:#8296a8">'+blk.range+'</span></td>'
+       + '<td style="font-size:11px">'+String(Math.floor(local)).padStart(2,'0')+':'
+       + (local%1?'30':'00')+'</td>'
+       + '<td class="num">'+opt.toFixed(1)+'MHz</td>';
+    for(const b of D.SW_BANDS){
+      const sc = G.swScore(s, s.sw.target, b.id, mid);
+      const mark = sc>=0.85?'◎':sc>=0.6?'○':sc>=0.3?'△':'×';
+      const col = sc>=0.85?'#4ade80':sc>=0.6?'#39d4ff':sc>=0.3?'#ffb400':'#5a6b7c';
+      const sel = cur===b.id;
+      h += '<td class="num" style="padding:2px">'
+         + '<button class="btn sw-cell'+(sel?' pri':'')+'" data-blk="'+blk.id+'" data-band="'+b.id+'"'
+         + ' style="width:100%;color:'+(sel?'#20180a':col)+'" title="'+b.name+' '+b.mhz+'MHz / 伝搬 '
+         + Math.round(sc*100)+'%">'+mark+'</button></td>';
+    }
+    h += '<td>'+(cur?D.swBand(cur).name+'<br><span style="font-size:10px;color:#8296a8">'
+       + Math.round(G.swScore(s,s.sw.target,cur,mid)*100)+'%</span>'
+       : '<span style="color:#ff4d4d">未設定</span>')+'</td></tr>';
+  }
+  h += '</table></div>';
+  h += '<p class="hint">セルをクリックするとその時間帯のバンドを設定します。'
+     + '同じセルをもう一度押すと解除（休止）になります。</p>';
+
+  /* ベリカード */
+  h += '<h3>'+GL.link('qsl','ベリカード')+'（受信確認証）</h3>';
+  const pend = Math.floor(s.sw.pending);
+  const vcost = Math.round(pend * D.CONST.SW_VERI_COST * G.costMul(s));
+  h += '<div class="card">海外のリスナーは受信した日時・周波数・受信状況を書いた'
+     + '<b>受信報告書</b>を送ってきます。局がそれを確認して返す証明書がベリカードです。'
+     + '<br><br>未返信 <b>'+pend+'通</b> / これまでの発送 '+s.sw.veri+'通'
+     + '<br><button class="btn pri" id="btnVeri" style="margin-top:8px"'+(pend?'':' disabled')+'>'
+     + 'ベリカードを発送する（'+money(vcost)+'）</button>'
+     + '<br><span style="color:#8296a8;font-size:11px">きちんと返すほど国際知名度が上がり、'
+     + '海外の企業や公的機関が枠を買ってくれるようになります。</span></div>';
+
+  /* 目標方面 */
+  h += '<h3>目標方面</h3><div style="overflow-x:auto"><table>'
+     + '<tr><th>方面</th><th class="num">時差</th><th class="num">潜在規模</th><th>妨害</th><th>特徴</th><th></th></tr>';
+  for(const tt of D.SW_TARGETS){
+    const mine = s.sw.target===tt.id;
+    h += '<tr><td>'+tt.name+(mine?' <span class="tag on">送信中</span>':'')+'</td>'
+      + '<td class="num">'+(tt.tz>=0?'+':'')+tt.tz+'h</td>'
+      + '<td class="num">'+tt.pop+'</td>'
+      + '<td>'+(tt.jam>=0.2?'<span class="tag off">高</span>':tt.jam>=0.05?'<span class="tag">中</span>':'<span class="tag on">低</span>')+'</td>'
+      + '<td style="color:#8296a8;font-size:11px">'+tt.desc+'</td>'
+      + '<td>'+(mine?'':'<button class="btn" data-swt="'+tt.id+'">切替</button>')+'</td></tr>';
+  }
+  h += '</table></div>';
+  el.innerHTML = h;
+
+  el.querySelectorAll('.sw-cell').forEach(b=>b.onclick=()=>{
+    const blk=b.dataset.blk, band=b.dataset.band;
+    G.setSwBand(blk, s.sw.bands[blk]===band ? null : band);
+  });
+  el.querySelectorAll('[data-swt]').forEach(b=>b.onclick=()=>G.setSwTarget(b.dataset.swt));
+  const bv=$('btnVeri'); if(bv) bv.onclick=()=>G.sendVeriCards();
+};
 
 /* =========================================================
    用語辞典
