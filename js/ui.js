@@ -396,7 +396,9 @@ UI.render_network = function(){
   h += '<p class="hint">系列に加盟すると、キー局制作の番組を<b>ネット受け</b>できます（編成表で「ネット受け」を選択）。'
      + '手間ゼロで一定の聴取率が取れますが、自社の枠と広告収入は減り、災害時も全国中継が優先されます。</p>';
   h += '<h3>加盟状況</h3>';
-  if(s.network){
+  if(s.ownNetwork){
+    h += '<p class="hint">自社系列を運営しているため、他系列への加盟はできません。</p>';
+  } else if(s.network){
     const n = D.NETWORKS.find(x=>x.id===s.network);
     const used = Object.values(s.schedule).filter(c=>c.fmt==='net').length;
     h += '<div class="card"><b>'+n.name+'</b> に加盟中<br>'+n.desc
@@ -405,15 +407,42 @@ UI.render_network = function(){
   } else {
     h += '<p class="hint">現在どの系列にも属していません（独立局）。編成の自由度は最大です。</p>';
   }
-  h += '<h3>系列一覧</h3><table><tr><th>ネットワーク</th><th class="num">月額分担金</th><th class="num">加盟金</th><th class="num">格</th><th>特徴</th><th></th></tr>';
-  for(const n of D.NETWORKS){
-    const mine = s.network===n.id;
-    h += '<tr><td>'+n.name+(mine?' <span class="tag on">加盟中</span>':'')+'</td>'
-      + '<td class="num">'+money(n.fee)+'</td><td class="num">'+money(n.fee*6)+'</td><td class="num">'+n.prestige+'</td>'
-      + '<td style="color:#8296a8;font-size:11px">'+n.desc+'</td>'
-      + '<td>'+(mine?'':'<button class="btn pri" data-join="'+n.id+'">加盟</button>')+'</td></tr>';
+  if(!s.ownNetwork){
+    h += '<h3>系列一覧</h3><table><tr><th>ネットワーク</th><th class="num">月額分担金</th><th class="num">加盟金</th><th class="num">格</th><th>特徴</th><th></th></tr>';
+    for(const n of D.NETWORKS){
+      const mine = s.network===n.id;
+      h += '<tr><td>'+n.name+(mine?' <span class="tag on">加盟中</span>':'')+'</td>'
+        + '<td class="num">'+money(n.fee)+'</td><td class="num">'+money(n.fee*6)+'</td><td class="num">'+n.prestige+'</td>'
+        + '<td style="color:#8296a8;font-size:11px">'+n.desc+'</td>'
+        + '<td>'+(mine?'':'<button class="btn pri" data-join="'+n.id+'">加盟</button>')+'</td></tr>';
+    }
+    h += '</table>';
   }
-  h += '</table>';
+
+  /* ---- 自社系列（キー局化） ---- */
+  h += '<h3>自社系列の設立</h3>';
+  if(s.ownNetwork){
+    const on = s.ownNetwork;
+    const fee = Math.round(on.affiliates * (7 + on.affiliates*0.25) * G.dif(s).pay);
+    h += '<div class="card"><b>'+esc(on.name)+'</b>（'+on.foundedY+'年目'+on.foundedM+'月 設立）<br>'
+       + '加盟局 <b>'+on.affiliates+'局</b> / 月間の分担金収入 約'+money(fee)+'<br>'
+       + '<span style="color:#8296a8;font-size:11px">知名度・信頼度・聴取率が高いほど加盟局が増えやすくなります。'
+       + '逆に数字を落とすと離れていきます。</span></div>';
+  } else {
+    const e = G.ownNetElig(s);
+    h += '<p class="hint">全番組を自社制作にし、局として十分な実績を積めば、逆に系列を立ち上げて'
+       + '他局から加盟金を受け取る側になれます。設立費用 '+money(D.CONST.OWN_NET_COST)+'。</p>';
+    const chk = (ok,label) => '<span class="tag '+(ok?'on':'off')+'">'+label+'</span>';
+    h += '<div class="card">'
+       + chk(e.independent,'現在どの系列にも非加盟')+' '
+       + chk(e.selfProduced,'ネット受け枠ゼロ')+' '
+       + chk(e.fame,'知名度 '+Math.round(s.fame)+'/'+D.CONST.OWN_NET_REQ.fame)+' '
+       + chk(e.trust,'信頼度 '+Math.round(s.trust)+'/'+D.CONST.OWN_NET_REQ.trust)+' '
+       + chk(e.rating,'聴取率 '+s.ratingAvg.toFixed(2)+'/'+D.CONST.OWN_NET_REQ.rating.toFixed(2))+' '
+       + chk(e.money,'資金 '+money(D.CONST.OWN_NET_COST))
+       + '<br><button class="btn pri" id="btnFoundNet" style="margin-top:8px"'
+       + (G.canFoundNetwork(s)?'':' disabled')+'>系列を設立する</button></div>';
+  }
 
   h += '<h3>競合局</h3><table><tr><th>局</th><th class="num">総合力</th><th>特徴</th></tr>';
   for(const r of s.rivals){
@@ -432,6 +461,8 @@ UI.render_network = function(){
     });
   });
   const bl = $('btnLeave'); if(bl) bl.onclick = ()=> UI.confirm('系列を脱退しますか？','違約金が発生し、ネット受け枠はすべてフィラーになります。',()=>G.leaveNetwork());
+  const bf = $('btnFoundNet'); if(bf) bf.onclick = ()=> UI.confirm('自社系列を設立しますか？',
+    '設立費用 '+money(D.CONST.OWN_NET_COST)+'。以後、他系列への加盟はできなくなります。', ()=>G.foundNetwork());
 };
 
 /* =========================================================
@@ -501,6 +532,7 @@ UI.render_finance = function(){
   if(m){
     const row=(n,v,neg)=>'<tr><td>'+n+'</td><td class="num '+(neg?'neg':'pos')+'">'+(neg?'-':'+')+money(v)+'</td></tr>';
     h += '<table>'+row('広告収入',m.adRev)+row('ネット配分金',m.netRev)+row('サイマル配信収入',m.simulRev||0)
+      + row('系列 加盟局分担金',m.netFee||0)
       + row('人件費（社員）',m.salary,1)+row('出演料（フリー）',m.talent||0,1)
       + row('設備維持費',m.upkeep,1)+row('番組制作費',m.prod,1)
       + row('電波利用料・著作権料・分担金',m.fee,1)+row('支払利息ほか',m.misc,1)
@@ -692,6 +724,40 @@ UI.slotDialog = function(kind){
       ? '保存先のスロットを選んでください。月が変わるたびにオートセーブも行われています。'
       : '読み込むデータを選んでください。<b>現在の進行状況は失われます。</b>',
     opts
+  });
+};
+
+/* 設定：ゲーム途中で災害モードのON/OFFを切り替える */
+UI.settingsDialog = function(){
+  const s = G.state; if(!s) return;
+  const onNow = s.meta.mode==='disaster';
+  const body =
+    '<label class="chk" style="font-size:13px">'
+    + '<input type="checkbox" id="setDisaster"'+(onNow?' checked':'')+'> 災害モードを有効にする'
+    + '（地震・台風などが発生するようになる）</label>'
+    + '<p class="hint" style="margin-top:10px">オフにすると、以後は新しい災害が発生しなくなります。'
+    + '現在進行中の災害があれば、それはそのまま収束するまで続きます。'
+    + 'オンに戻せば、いつからでも通常の確率で再び発生し始めます。</p>'
+    + (s.disasterActive ? '<p class="hint" style="color:#ff8a8a">現在【'+s.disasterActive.name+'】報道体制が進行中です。</p>' : '')
+    + '<p class="hint">現在の難易度：<b>'+D.diff(s.meta.diff).name+'</b>'
+    + '（難易度は開局時に固定され、途中では変更できません）</p>';
+  UI.showModal({
+    head:'設定',
+    bodyHtml: body,
+    opts:[
+      { label:'適用する', fn:()=>{
+        const on = $('setDisaster').checked;
+        const was = s.meta.mode;
+        s.meta.mode = on ? 'disaster' : 'normal';
+        if(was !== s.meta.mode){
+          G.log(on ? '設定変更：災害モードを<b>有効</b>にしました。' : '設定変更：災害モードを<b>無効</b>にしました。以後、新規の災害は発生しません。',
+                on ? 'warn' : '');
+          UI.toast('設定を更新しました','good');
+          UI.refreshTop();
+        }
+      }},
+      { label:'閉じる', fn:()=>{} }
+    ]
   });
 };
 

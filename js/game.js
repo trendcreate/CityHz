@@ -36,6 +36,7 @@ G.newGame = function(opts){
     admin: 0, bpo: 0, accidents: 0,
     licenses: ['base'],
     network: null, networkMonths: 0,
+    ownNetwork: null,   // 自社系列（キー局化）。{ name, affiliates, foundedY, foundedM }
     staff: [], candidates: [],
     freeMarket: [], agencyBlock: {},
     sponsors: [], offers: [],
@@ -599,7 +600,7 @@ function endOfDay(s){
 }
 
 function endOfMonth(s){
-  const L = { adRev:0, netRev:0, simulRev:0, salary:0, talent:0, upkeep:0, prod:s.ledger.prod, fee:0, misc:0 };
+  const L = { adRev:0, netRev:0, simulRev:0, netFee:0, salary:0, talent:0, upkeep:0, prod:s.ledger.prod, fee:0, misc:0 };
   // 広告収入
   const drop = [];
   for(const sp of s.sponsors){
@@ -637,8 +638,22 @@ function endOfMonth(s){
   // サイマル配信の広告収入。聴取自体はライセンスがなくても伸びるが、
   // 収益化にはマルチメディア放送の許可（データ放送・アプリ配信の正式な仕組み）が要る。
   L.simulRev = s.licenses.includes('multi') ? s.simulAvg * 2.1 * dif.pay : 0;
+  // 自社系列：加盟局が増減し、加盟局から分担金を受け取る（他局に加盟するのと逆の立場）
+  L.netFee = 0;
+  if(s.ownNetwork){
+    const on = s.ownNetwork;
+    const growProb = clamp(0.08 + s.fame/450 + (s.ratingAvg-1.5)*0.03 + (s.trust-50)/700, 0.02, 0.32);
+    if(on.affiliates < D.CONST.OWN_NET_CAP && Math.random() < growProb){
+      on.affiliates++;
+      G.log(on.name+'に地方局が新たに加盟しました（加盟局 '+on.affiliates+'局）。','good');
+    } else if(on.affiliates>0 && Math.random() < 0.03){
+      on.affiliates--;
+      G.log(on.name+'から加盟局が1局離脱しました。','bad');
+    }
+    L.netFee = on.affiliates * (7 + on.affiliates*0.25) * dif.pay;
+  }
 
-  const income = L.adRev + s.ledger.netRev + L.simulRev;
+  const income = L.adRev + s.ledger.netRev + L.simulRev + L.netFee;
   const cost = L.salary + L.talent + L.upkeep + L.prod + L.fee + L.misc;
   s.money += income - cost;
   s.lastMonth = { ...L, netRev:s.ledger.netRev, income, cost, profit:income-cost };
@@ -1079,6 +1094,41 @@ G.leaveNetwork = function(){
   G.log(net.name+'を脱退。違約金'+money(net.fee*4)+'。','bad');
   UI.refresh();
 };
+/* =========================================================
+   自社系列（キー局化）
+   全番組が自社制作（ネット受けゼロ）の局だけが、逆に系列を立ち上げられる。
+   ========================================================= */
+D.CONST.OWN_NET_COST = 4000;
+D.CONST.OWN_NET_REQ  = { fame:55, trust:55, rating:2.0 };
+D.CONST.OWN_NET_CAP  = 40;
+
+G.ownNetElig = function(s){
+  const usesNet = Object.values(s.schedule).some(c => c.fmt==='net');
+  return {
+    independent: !s.network,
+    selfProduced: !usesNet,
+    fame:  s.fame  >= D.CONST.OWN_NET_REQ.fame,
+    trust: s.trust >= D.CONST.OWN_NET_REQ.trust,
+    rating: s.ratingAvg >= D.CONST.OWN_NET_REQ.rating,
+    money: s.money >= D.CONST.OWN_NET_COST,
+    already: !!s.ownNetwork
+  };
+};
+G.canFoundNetwork = function(s){
+  const e = G.ownNetElig(s);
+  return !e.already && e.independent && e.selfProduced && e.fame && e.trust && e.rating && e.money;
+};
+G.foundNetwork = function(){
+  const s = G.state;
+  if(!G.canFoundNetwork(s)){ UI.toast('設立の条件を満たしていません','bad'); return; }
+  s.money -= D.CONST.OWN_NET_COST;
+  s.ownNetwork = { name: s.meta.call+'系列', affiliates: 0, foundedY: s.time.y, foundedM: s.time.m };
+  s.fame = clamp(s.fame + 8, 0, 100);
+  AUDIO.play('good');
+  G.log('<b>'+s.ownNetwork.name+'</b>を設立しました。自社制作の番組を他局に供給する側になります。','good');
+  UI.refresh();
+};
+
 G.buyLicense = function(id){
   const s = G.state;
   const lic = D.LICENSES.find(l=>l.id===id);
@@ -1259,6 +1309,9 @@ function migrate(s){
   if(s.simulAvg === undefined) s.simulAvg = 0;
   if(!s.simulHist) s.simulHist = [];
   if(s.lastMonth && s.lastMonth.simulRev === undefined) s.lastMonth.simulRev = 0;
+  // 自社系列（キー局化）
+  if(s.ownNetwork === undefined) s.ownNetwork = null;
+  if(s.lastMonth && s.lastMonth.netFee === undefined) s.lastMonth.netFee = 0;
 }
 G._migrate = migrate;
 
