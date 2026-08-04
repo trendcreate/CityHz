@@ -805,21 +805,37 @@ G.computeRating = function(s, cell, blockId){
 /* =========================================================
    時間進行
    ========================================================= */
+/* endOfDay/endOfMonth/endOfYear の中で例外が起きても、暦の進行そのものは止めない。
+   （日付の巻き戻しを先に確定させてから副作用を呼ぶことで、内部エラーが
+   「月が進まなくなる」という致命的な状態化けにつながらないようにする） */
+function safeCall(label, fn){
+  try{ fn(); }
+  catch(e){
+    console.error('[CityHz] '+label+' failed:', e);
+    try{
+      G.log('<span style="color:#ff4d4d">内部処理でエラーが発生しました（'+label+'）。'
+          + '放送は継続しています。繰り返す場合は開発者コンソールをご確認ください。</span>','bad');
+    }catch(e2){}
+  }
+}
+
 G.tick = function(){
   const s = G.state; if(!s || s.over || G.pendingEvent) return;
   const t = s.time;
   t.h++;
   if(t.h>=24){
     t.h=0; t.d++; t.dow=(t.dow+1)%7;
-    endOfDay(s);
-    const dim = [31,28,31,30,31,30,31,31,30,31,30,31][t.m-1];
+    safeCall('endOfDay', ()=>endOfDay(s));
+    const dim = [31,28,31,30,31,30,31,31,30,31,30,31][clamp(t.m-1,0,11)];
     if(t.d > dim){
       t.d=1; t.m++;
-      endOfMonth(s);
-      if(t.m>12){ t.m=1; t.y++; endOfYear(s); }
+      const yearRolled = t.m>12;
+      if(yearRolled){ t.m=1; t.y++; }
+      safeCall('endOfMonth', ()=>endOfMonth(s));
+      if(yearRolled) safeCall('endOfYear', ()=>endOfYear(s));
     }
   }
-  hourly(s);
+  safeCall('hourly', ()=>hourly(s));
 };
 
 function hourly(s){
@@ -1722,6 +1738,12 @@ G.deleteSave = function(slot){
 /* 旧バージョンのセーブを現行の形に寄せる */
 function migrate(s){
   if(!s || !s.meta) return;
+  // 月が範囲外（例：内部エラーで13月のまま固まった等）になっていたら正規化する
+  if(s.time){
+    while(s.time.m > 12){ s.time.m -= 12; s.time.y++; }
+    while(s.time.m < 1){ s.time.m += 12; s.time.y--; }
+    if(s.time.y < 1) s.time.y = 1;
+  }
   // 旧「受難モード」は 災害モード×難易度hard に分解された
   if(s.meta.mode === 'hard'){ s.meta.mode = 'disaster'; s.meta.diff = s.meta.diff || 'hard'; }
   if(!s.meta.diff) s.meta.diff = 'normal';
